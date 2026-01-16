@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 
 // ========================================
@@ -200,12 +200,6 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const formatTime = (timestamp) => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-};
 
 // ========================================
 // MAIN COMPONENT
@@ -231,7 +225,6 @@ export default function WindowDepotTracker() {
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
   const initAttempts = useRef(0);
-  const saveQueue = useRef([]);
   
   // ========================================
   // INITIALIZATION & DATA LOADING
@@ -297,6 +290,7 @@ export default function WindowDepotTracker() {
     };
     
     initializeApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   // ========================================
@@ -323,6 +317,7 @@ export default function WindowDepotTracker() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   // ========================================
