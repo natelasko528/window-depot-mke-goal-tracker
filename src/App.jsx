@@ -1,0 +1,2925 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import './storage'; // Initialize IndexedDB storage adapter
+
+// ========================================
+// THEME & CONSTANTS
+// ========================================
+
+const THEME = {
+  primary: '#0056A4',
+  primaryDark: '#003D73',
+  primaryLight: '#4A90D9',
+  secondary: '#F5F7FA',
+  accent: '#E8F4FD',
+  success: '#28A745',
+  warning: '#FFC107',
+  danger: '#DC3545',
+  white: '#FFFFFF',
+  text: '#1A1A2E',
+  textLight: '#6B7280',
+  border: '#E5E7EB',
+  gold: '#FFD700',
+  silver: '#C0C0C0',
+  bronze: '#CD7F32',
+};
+
+const CATEGORIES = [
+  { id: 'reviews', name: 'Reviews', icon: Star, color: THEME.warning, defaultGoal: 5 },
+  { id: 'demos', name: 'Demos', icon: Calendar, color: THEME.success, defaultGoal: 3 },
+  { id: 'callbacks', name: 'Callbacks', icon: Phone, color: THEME.primary, defaultGoal: 10 },
+];
+
+const PRODUCT_INTERESTS = [
+  { id: 'windows', label: 'Windows', color: '#0056A4' },
+  { id: 'doors', label: 'Doors', color: '#28A745' },
+  { id: 'siding', label: 'Siding', color: '#6B7280' },
+  { id: 'roof', label: 'Roof', color: '#DC3545' },
+  { id: 'gutters', label: 'Gutters', color: '#17A2B8' },
+  { id: 'flooring', label: 'Flooring', color: '#8B4513' },
+  { id: 'bathroom', label: 'Bathroom', color: '#9333EA' },
+  { id: 'solar', label: 'Solar', color: '#F59E0B' },
+];
+
+// ========================================
+// VALIDATION UTILITIES
+// ========================================
+
+const VALIDATIONS = {
+  userName: (name) => {
+    if (!name || typeof name !== 'string') return 'Name is required';
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return 'Name cannot be empty';
+    if (trimmed.length > 50) return 'Name must be under 50 characters';
+    if (!/^[a-zA-Z0-9\s\-']+$/.test(trimmed)) return 'Name contains invalid characters';
+    return null;
+  },
+  
+  goalValue: (value) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num)) return 'Must be a valid number';
+    if (num < 0) return 'Must be positive';
+    if (num > 100) return 'Maximum goal is 100';
+    return null;
+  },
+  
+  date: (dateString) => {
+    if (!dateString) return null; // Optional
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid date';
+    if (date > new Date()) return 'Date cannot be in the future';
+    const minDate = new Date('2020-01-01');
+    if (date < minDate) return 'Date too far in the past';
+    return null;
+  },
+  
+  customerName: (name) => {
+    if (!name || typeof name !== 'string') return 'Customer name is required';
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return 'Customer name cannot be empty';
+    if (trimmed.length > 100) return 'Customer name too long';
+    return null;
+  },
+  
+  notes: (notes) => {
+    if (!notes) return null; // Optional
+    if (typeof notes !== 'string') return 'Notes must be text';
+    if (notes.length > 500) return 'Notes must be under 500 characters';
+    return null;
+  },
+  
+  postContent: (content) => {
+    if (!content || typeof content !== 'string') return 'Post content is required';
+    const trimmed = content.trim();
+    if (trimmed.length === 0) return 'Post cannot be empty';
+    if (trimmed.length > 500) return 'Post must be under 500 characters';
+    return null;
+  },
+  
+  comment: (content) => {
+    if (!content || typeof content !== 'string') return 'Comment is required';
+    const trimmed = content.trim();
+    if (trimmed.length === 0) return 'Comment cannot be empty';
+    if (trimmed.length > 300) return 'Comment must be under 300 characters';
+    return null;
+  },
+};
+
+const sanitizeInput = (input) => {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/[<>]/g, '') // Remove angle brackets
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/on\w+\s*=/gi, '') // Remove event handlers
+    .trim();
+};
+
+// ========================================
+// STORAGE UTILITIES WITH HARDENING
+// ========================================
+
+// Storage wrapper - uses window.storage (IndexedDB adapter)
+const storage = {
+  async get(key, defaultValue = null) {
+    try {
+      if (!window.storage) {
+        console.warn('Storage not initialized, using default value');
+        return defaultValue;
+      }
+      const result = await window.storage.get(key, defaultValue);
+      // IndexedDB adapter already returns parsed JSON
+      return result !== null && result !== undefined ? result : defaultValue;
+    } catch (error) {
+      console.error(`Storage get error for ${key}:`, error);
+      return defaultValue;
+    }
+  },
+  
+  async set(key, value, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        if (!window.storage) {
+          console.warn('Storage not initialized, cannot save');
+          return false;
+        }
+        await window.storage.set(key, value, retries);
+        return true;
+      } catch (error) {
+        console.error(`Storage set error for ${key} (attempt ${attempt}):`, error);
+        if (attempt === retries) {
+          throw new Error(`Failed to save ${key} after ${retries} attempts`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+    return false;
+  },
+  
+  async delete(key) {
+    try {
+      if (!window.storage) {
+        console.warn('Storage not initialized, cannot delete');
+        return false;
+      }
+      await window.storage.delete(key);
+      return true;
+    } catch (error) {
+      console.error(`Storage delete error for ${key}:`, error);
+      return false;
+    }
+  },
+};
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+const getToday = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const getWeekStart = () => {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day;
+  const weekStart = new Date(now.setDate(diff));
+  return `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+};
+
+const getMonthStart = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatTime = (timestamp) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+// ========================================
+// MAIN COMPONENT
+// ========================================
+
+export default function WindowDepotTracker() {
+  // ========================================
+  // STATE MANAGEMENT
+  // ========================================
+  
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [dailyLogs, setDailyLogs] = useState({});
+  const [appointments, setAppointments] = useState([]);
+  const [feed, setFeed] = useState([]);
+  const [activeView, setActiveView] = useState('dashboard');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [toast, setToast] = useState(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [rememberUser, setRememberUser] = useState(false);
+  
+  // Refs for initialization tracking
+  const hasInitialized = useRef(false);
+  const initAttempts = useRef(0);
+  const saveQueue = useRef([]);
+  
+  // ========================================
+  // INITIALIZATION & DATA LOADING
+  // ========================================
+  
+  useEffect(() => {
+    const initializeApp = async () => {
+      if (hasInitialized.current) return;
+      
+      try {
+        setIsLoading(true);
+        
+        // Load all data with timeout protection
+        const loadPromises = [
+          storage.get('users', []),
+          storage.get('dailyLogs', {}),
+          storage.get('appointments', []),
+          storage.get('feed', []),
+          storage.get('currentUser', null),
+          storage.get('rememberUser', false),
+        ];
+        
+        const timeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Load timeout')), 10000)
+        );
+        
+        const results = await Promise.race([
+          Promise.all(loadPromises),
+          timeout
+        ]);
+        
+        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember] = results;
+        
+        setUsers(loadedUsers || []);
+        setDailyLogs(loadedLogs || {});
+        setAppointments(loadedAppts || []);
+        setFeed(loadedFeed || []);
+        setRememberUser(shouldRemember || false);
+        
+        if (shouldRemember && savedUser) {
+          setCurrentUser(savedUser);
+        }
+        
+        // Initialization complete - wait a bit before allowing saves
+        await new Promise(resolve => setTimeout(resolve, 500));
+        hasInitialized.current = true;
+        
+        showToast('App loaded successfully', 'success');
+      } catch (error) {
+        console.error('Initialization error:', error);
+        initAttempts.current++;
+        
+        if (initAttempts.current < 3) {
+          showToast('Retrying initialization...', 'warning');
+          setTimeout(initializeApp, 2000);
+        } else {
+          showToast('Failed to load data. Starting fresh.', 'error');
+          hasInitialized.current = true;
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    initializeApp();
+  }, []);
+  
+  // ========================================
+  // ONLINE/OFFLINE DETECTION
+  // ========================================
+  
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleOnline = () => {
+      setIsOnline(true);
+      showToast('Back online', 'success');
+    };
+    
+    const handleOffline = () => {
+      setIsOnline(false);
+      showToast('You are offline. Changes may not save.', 'warning');
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
+  // ========================================
+  // AUTO-SAVE WITH DEBOUNCING
+  // ========================================
+  
+  useEffect(() => {
+    if (!hasInitialized.current || !isOnline) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('users', users);
+      } catch (error) {
+        console.error('Auto-save users failed:', error);
+      }
+    }, 1000);
+    
+    return () => clearTimeout(saveTimeout);
+  }, [users, isOnline]);
+  
+  useEffect(() => {
+    if (!hasInitialized.current || !isOnline) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('dailyLogs', dailyLogs);
+      } catch (error) {
+        console.error('Auto-save logs failed:', error);
+      }
+    }, 1000);
+    
+    return () => clearTimeout(saveTimeout);
+  }, [dailyLogs, isOnline]);
+  
+  useEffect(() => {
+    if (!hasInitialized.current || !isOnline) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('appointments', appointments);
+      } catch (error) {
+        console.error('Auto-save appointments failed:', error);
+      }
+    }, 1000);
+    
+    return () => clearTimeout(saveTimeout);
+  }, [appointments, isOnline]);
+  
+  useEffect(() => {
+    if (!hasInitialized.current || !isOnline) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('feed', feed);
+      } catch (error) {
+        console.error('Auto-save feed failed:', error);
+      }
+    }, 1000);
+    
+    return () => clearTimeout(saveTimeout);
+  }, [feed, isOnline]);
+  
+  useEffect(() => {
+    if (!hasInitialized.current) return;
+    
+    const saveTimeout = setTimeout(async () => {
+      try {
+        if (rememberUser) {
+          await storage.set('currentUser', currentUser);
+        }
+        await storage.set('rememberUser', rememberUser);
+      } catch (error) {
+        console.error('Auto-save user preference failed:', error);
+      }
+    }, 500);
+    
+    return () => clearTimeout(saveTimeout);
+  }, [currentUser, rememberUser]);
+  
+  // ========================================
+  // TOAST NOTIFICATION SYSTEM
+  // ========================================
+  
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  
+  // ========================================
+  // USER MANAGEMENT
+  // ========================================
+  
+  const createUser = useCallback((name, role) => {
+    const validationError = VALIDATIONS.userName(name);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return false;
+    }
+    
+    const sanitizedName = sanitizeInput(name);
+    
+    if (users.some(u => u.name.toLowerCase() === sanitizedName.toLowerCase())) {
+      showToast('User with this name already exists', 'error');
+      return false;
+    }
+    
+    const newUser = {
+      id: Date.now().toString(),
+      name: sanitizedName,
+      role: role || 'employee',
+      goals: {
+        reviews: 5,
+        demos: 3,
+        callbacks: 10,
+      },
+      createdAt: new Date().toISOString(),
+    };
+    
+    setUsers(prev => [...prev, newUser]);
+    setCurrentUser(newUser);
+    showToast(`Welcome, ${sanitizedName}!`, 'success');
+    return true;
+  }, [users, showToast]);
+  
+  const deleteUser = useCallback(async (userId) => {
+    if (!window.confirm('Are you sure you want to delete this user? All their data will be lost.')) {
+      return;
+    }
+    
+    try {
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      
+      // Clean up related data
+      setDailyLogs(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(date => {
+          if (updated[date][userId]) {
+            delete updated[date][userId];
+          }
+        });
+        return updated;
+      });
+      
+      setAppointments(prev => prev.filter(a => a.userId !== userId));
+      setFeed(prev => prev.filter(p => p.userId !== userId));
+      
+      if (currentUser?.id === userId) {
+        setCurrentUser(null);
+      }
+      
+      showToast('User deleted successfully', 'success');
+    } catch (error) {
+      showToast('Failed to delete user', 'error');
+    }
+  }, [currentUser, showToast]);
+  
+  const updateUserGoals = useCallback((userId, goals) => {
+    const errors = [];
+    
+    Object.entries(goals).forEach(([key, value]) => {
+      const error = VALIDATIONS.goalValue(value);
+      if (error) errors.push(`${key}: ${error}`);
+    });
+    
+    if (errors.length > 0) {
+      showToast(errors[0], 'error');
+      return;
+    }
+    
+    setUsers(prev => prev.map(u => 
+      u.id === userId ? { ...u, goals: { ...u.goals, ...goals } } : u
+    ));
+    
+    showToast('Goals updated successfully', 'success');
+  }, [showToast]);
+  
+  // ========================================
+  // TRACKING FUNCTIONS
+  // ========================================
+  
+  const handleIncrement = useCallback((category) => {
+    if (!currentUser) return;
+    
+    const today = getToday();
+    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
+    const goal = currentUser.goals[category];
+    
+    setDailyLogs(prev => ({
+      ...prev,
+      [today]: {
+        ...prev[today],
+        [currentUser.id]: {
+          ...prev[today]?.[currentUser.id],
+          [category]: currentCount + 1,
+        },
+      },
+    }));
+    
+    // Auto-post to feed for reviews and callbacks
+    if (category === 'reviews' || category === 'callbacks') {
+      const messages = {
+        reviews: [
+          `🌟 ${currentUser.name} got a review!`,
+          `⭐ ${currentUser.name} secured another review!`,
+          `✨ ${currentUser.name} is collecting reviews!`,
+        ],
+        callbacks: [
+          `📞 ${currentUser.name} made a callback!`,
+          `☎️ ${currentUser.name} completed a callback!`,
+          `💬 ${currentUser.name} is reaching out!`,
+        ],
+      };
+      
+      const messageList = messages[category];
+      const message = messageList[Math.floor(Math.random() * messageList.length)];
+      
+      const newPost = {
+        id: Date.now().toString() + Math.random(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        content: sanitizeInput(message),
+        timestamp: Date.now(),
+        likes: [],
+        comments: [],
+        isAuto: true,
+      };
+      
+      setFeed(prev => [newPost, ...prev]);
+    }
+    
+    // Check for goal completion
+    if (currentCount + 1 === goal) {
+      setShowCelebration(true);
+      setTimeout(() => setShowCelebration(false), 2000);
+      showToast(`🎉 ${category} goal complete!`, 'success');
+    }
+  }, [currentUser, dailyLogs, showToast]);
+  
+  const handleDecrement = useCallback((category) => {
+    if (!currentUser) return;
+    
+    const today = getToday();
+    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
+    
+    if (currentCount === 0) return;
+    
+    // Confirmation for large decrements
+    if (currentCount > 5) {
+      if (!window.confirm(`Are you sure you want to decrease ${category} from ${currentCount} to ${currentCount - 1}?`)) {
+        return;
+      }
+    }
+    
+    setDailyLogs(prev => ({
+      ...prev,
+      [today]: {
+        ...prev[today],
+        [currentUser.id]: {
+          ...prev[today]?.[currentUser.id],
+          [category]: Math.max(0, currentCount - 1),
+        },
+      },
+    }));
+  }, [currentUser, dailyLogs]);
+  
+  // ========================================
+  // APPOINTMENT MANAGEMENT
+  // ========================================
+  
+  const addAppointment = useCallback((appointmentData) => {
+    const validationError = VALIDATIONS.customerName(appointmentData.customerName);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return false;
+    }
+    
+    const dateError = VALIDATIONS.date(appointmentData.date);
+    if (dateError) {
+      showToast(dateError, 'error');
+      return false;
+    }
+    
+    const notesError = VALIDATIONS.notes(appointmentData.notes);
+    if (notesError) {
+      showToast(notesError, 'error');
+      return false;
+    }
+    
+    const newAppt = {
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      customerName: sanitizeInput(appointmentData.customerName),
+      products: appointmentData.products || [],
+      notes: sanitizeInput(appointmentData.notes || ''),
+      date: appointmentData.date || getToday(),
+      timestamp: Date.now(),
+      countsAsDemo: appointmentData.countsAsDemo !== false,
+    };
+    
+    setAppointments(prev => [newAppt, ...prev]);
+    
+    // If counts as demo, increment demo count
+    if (newAppt.countsAsDemo) {
+      handleIncrement('demos');
+    }
+    
+    showToast('Appointment logged successfully', 'success');
+    return true;
+  }, [currentUser, showToast, handleIncrement]);
+  
+  const deleteAppointment = useCallback((apptId) => {
+    if (!window.confirm('Delete this appointment?')) return;
+    
+    setAppointments(prev => prev.filter(a => a.id !== apptId));
+    showToast('Appointment deleted', 'success');
+  }, [showToast]);
+  
+  // ========================================
+  // FEED MANAGEMENT
+  // ========================================
+  
+  const addPost = useCallback((content) => {
+    const validationError = VALIDATIONS.postContent(content);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return false;
+    }
+    
+    const newPost = {
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      content: sanitizeInput(content),
+      timestamp: Date.now(),
+      likes: [],
+      comments: [],
+      isAuto: false,
+    };
+    
+    setFeed(prev => [newPost, ...prev]);
+    showToast('Post created', 'success');
+    return true;
+  }, [currentUser, showToast]);
+  
+  const toggleLike = useCallback((postId) => {
+    if (!currentUser) return;
+    
+    setFeed(prev => prev.map(post => {
+      if (post.id !== postId) return post;
+      
+      const likes = post.likes || [];
+      const hasLiked = likes.includes(currentUser.id);
+      
+      return {
+        ...post,
+        likes: hasLiked 
+          ? likes.filter(id => id !== currentUser.id)
+          : [...likes, currentUser.id],
+      };
+    }));
+  }, [currentUser]);
+  
+  const addComment = useCallback((postId, content) => {
+    const validationError = VALIDATIONS.comment(content);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return false;
+    }
+    
+    const newComment = {
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      content: sanitizeInput(content),
+      timestamp: Date.now(),
+    };
+    
+    setFeed(prev => prev.map(post => 
+      post.id === postId 
+        ? { ...post, comments: [...(post.comments || []), newComment] }
+        : post
+    ));
+    
+    return true;
+  }, [currentUser, showToast]);
+  
+  const editPost = useCallback((postId, newContent) => {
+    const validationError = VALIDATIONS.postContent(newContent);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return false;
+    }
+    
+    setFeed(prev => prev.map(post => 
+      post.id === postId 
+        ? { 
+            ...post, 
+            content: sanitizeInput(newContent),
+            edited: true,
+            editedAt: Date.now(),
+          }
+        : post
+    ));
+    
+    showToast('Post updated', 'success');
+    return true;
+  }, [showToast]);
+  
+  const deletePost = useCallback((postId) => {
+    if (!window.confirm('Delete this post?')) return;
+    
+    setFeed(prev => prev.filter(p => p.id !== postId));
+    showToast('Post deleted', 'success');
+  }, [showToast]);
+  
+  // ========================================
+  // CALCULATED DATA
+  // ========================================
+  
+  const todayStats = useMemo(() => {
+    if (!currentUser) return { reviews: 0, demos: 0, callbacks: 0 };
+    const today = getToday();
+    return dailyLogs[today]?.[currentUser.id] || { reviews: 0, demos: 0, callbacks: 0 };
+  }, [currentUser, dailyLogs]);
+  
+  const weekStats = useMemo(() => {
+    if (!currentUser) return { reviews: 0, demos: 0, callbacks: 0 };
+    
+    const stats = { reviews: 0, demos: 0, callbacks: 0 };
+    const weekStart = getWeekStart();
+    
+    Object.entries(dailyLogs).forEach(([date, users]) => {
+      if (date >= weekStart && users[currentUser.id]) {
+        stats.reviews += users[currentUser.id].reviews || 0;
+        stats.demos += users[currentUser.id].demos || 0;
+        stats.callbacks += users[currentUser.id].callbacks || 0;
+      }
+    });
+    
+    return stats;
+  }, [currentUser, dailyLogs]);
+  
+  const leaderboard = useMemo(() => {
+    const weekStart = getWeekStart();
+    
+    const scores = users.map(user => {
+      let total = 0;
+      
+      Object.entries(dailyLogs).forEach(([date, usersData]) => {
+        if (date >= weekStart && usersData[user.id]) {
+          total += (usersData[user.id].reviews || 0);
+          total += (usersData[user.id].demos || 0);
+          total += (usersData[user.id].callbacks || 0);
+        }
+      });
+      
+      return { ...user, weeklyTotal: total };
+    });
+    
+    return scores.sort((a, b) => b.weeklyTotal - a.weeklyTotal);
+  }, [users, dailyLogs]);
+  
+  // ========================================
+  // EXPORT FUNCTIONALITY
+  // ========================================
+  
+  const exportData = useCallback(() => {
+    try {
+      const data = {
+        users,
+        dailyLogs,
+        appointments,
+        feed,
+        exportDate: new Date().toISOString(),
+        version: '1.0',
+      };
+      
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: 'application/json',
+      });
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `window-depot-backup-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      showToast('Data exported successfully', 'success');
+    } catch (error) {
+      showToast('Failed to export data', 'error');
+    }
+  }, [users, dailyLogs, appointments, feed, showToast]);
+  
+  // ========================================
+  // RENDER: LOADING STATE
+  // ========================================
+  
+  if (isLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: THEME.secondary,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            border: `4px solid ${THEME.accent}`,
+            borderTop: `4px solid ${THEME.primary}`,
+            borderRadius: '50%',
+            margin: '0 auto 20px',
+            animation: 'spin 1s linear infinite',
+          }} />
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+          <div style={{ color: THEME.text, fontSize: '18px', fontWeight: '600' }}>
+            Loading Window Depot Tracker...
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  // ========================================
+  // RENDER: USER SELECTION
+  // ========================================
+  
+  if (!currentUser) {
+    return <UserSelection 
+      users={users}
+      onSelectUser={setCurrentUser}
+      onCreateUser={createUser}
+      rememberUser={rememberUser}
+      onRememberChange={setRememberUser}
+    />;
+  }
+  
+  // ========================================
+  // RENDER: MAIN APP
+  // ========================================
+  
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: THEME.secondary,
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      paddingBottom: '80px',
+    }}>
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div style={{
+          background: THEME.warning,
+          color: THEME.text,
+          padding: '12px',
+          textAlign: 'center',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+        }}>
+          <WifiOff size={20} />
+          You're offline. Changes may not save.
+        </div>
+      )}
+      
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 10000,
+          background: toast.type === 'success' ? THEME.success :
+                     toast.type === 'error' ? THEME.danger :
+                     toast.type === 'warning' ? THEME.warning :
+                     THEME.primary,
+          color: THEME.white,
+          padding: '16px 24px',
+          borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          maxWidth: '90vw',
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          <style>{`
+            @keyframes slideIn {
+              from {
+                transform: translateX(100%);
+                opacity: 0;
+              }
+              to {
+                transform: translateX(0);
+                opacity: 1;
+              }
+            }
+          `}</style>
+          {toast.message}
+        </div>
+      )}
+      
+      {/* Celebration Animation */}
+      {showCelebration && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.5)',
+          animation: 'fadeIn 0.3s ease-out',
+        }}>
+          <div style={{
+            background: THEME.white,
+            padding: '40px',
+            borderRadius: '20px',
+            textAlign: 'center',
+            animation: 'scaleIn 0.3s ease-out',
+          }}>
+            <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎉</div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: THEME.primary }}>
+              Goal Complete!
+            </div>
+          </div>
+          <style>{`
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+            @keyframes scaleIn {
+              from { transform: scale(0.5); }
+              to { transform: scale(1); }
+            }
+          `}</style>
+        </div>
+      )}
+      
+      {/* Header */}
+      <div style={{
+        background: `linear-gradient(135deg, ${THEME.primaryDark} 0%, ${THEME.primary} 100%)`,
+        color: THEME.white,
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>
+            Window Depot Milwaukee
+          </h1>
+          {isOnline ? (
+            <Wifi size={20} style={{ opacity: 0.8 }} />
+          ) : (
+            <WifiOff size={20} />
+          )}
+        </div>
+        <div style={{ fontSize: '14px', opacity: 0.9 }}>
+          Welcome, {currentUser.name}
+        </div>
+        <button
+          onClick={() => {
+            if (window.confirm('Switch user?')) {
+              setCurrentUser(null);
+            }
+          }}
+          style={{
+            marginTop: '8px',
+            padding: '6px 12px',
+            background: 'rgba(255,255,255,0.2)',
+            border: 'none',
+            borderRadius: '6px',
+            color: THEME.white,
+            fontSize: '12px',
+            cursor: 'pointer',
+          }}
+        >
+          Switch User
+        </button>
+      </div>
+      
+      {/* Main Content */}
+      <div style={{ padding: '20px' }}>
+        {activeView === 'dashboard' && (
+          <Dashboard 
+            currentUser={currentUser}
+            todayStats={todayStats}
+            weekStats={weekStats}
+            onIncrement={handleIncrement}
+            onDecrement={handleDecrement}
+          />
+        )}
+        
+        {activeView === 'goals' && (
+          <Goals
+            currentUser={currentUser}
+            onUpdateGoals={(goals) => updateUserGoals(currentUser.id, goals)}
+          />
+        )}
+        
+        {activeView === 'appointments' && (
+          <Appointments
+            appointments={appointments.filter(a => a.userId === currentUser.id)}
+            onAdd={addAppointment}
+            onDelete={deleteAppointment}
+          />
+        )}
+        
+        {activeView === 'feed' && (
+          <Feed
+            feed={feed}
+            currentUser={currentUser}
+            onAddPost={addPost}
+            onToggleLike={toggleLike}
+            onAddComment={addComment}
+            onEditPost={editPost}
+            onDeletePost={deletePost}
+          />
+        )}
+        
+        {activeView === 'leaderboard' && (
+          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} />
+        )}
+        
+        {activeView === 'team' && currentUser.role === 'manager' && (
+          <TeamView users={users} dailyLogs={dailyLogs} />
+        )}
+        
+        {activeView === 'admin' && currentUser.role === 'manager' && (
+          <AdminPanel
+            users={users}
+            onCreateUser={createUser}
+            onDeleteUser={deleteUser}
+            onUpdateGoals={updateUserGoals}
+            onExport={exportData}
+          />
+        )}
+        
+        {activeView === 'reports' && currentUser.role === 'manager' && (
+          <Reports
+            users={users}
+            dailyLogs={dailyLogs}
+            appointments={appointments}
+          />
+        )}
+      </div>
+      
+      {/* Bottom Navigation */}
+      <BottomNav
+        activeView={activeView}
+        onViewChange={setActiveView}
+        isManager={currentUser.role === 'manager'}
+      />
+    </div>
+  );
+}
+
+// ========================================
+// USER SELECTION COMPONENT
+// ========================================
+
+function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onRememberChange }) {
+  const [mode, setMode] = useState(users.length === 0 ? 'create' : 'select');
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('employee');
+  
+  const handleCreate = () => {
+    if (onCreateUser(newName, newRole)) {
+      setNewName('');
+    }
+  };
+  
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: THEME.secondary,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    }}>
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '40px',
+        maxWidth: '400px',
+        width: '100%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+      }}>
+        <div style={{
+          textAlign: 'center',
+          marginBottom: '32px',
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            background: THEME.primary,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}>
+            <Target size={40} color={THEME.white} />
+          </div>
+          <h1 style={{
+            margin: '0 0 8px 0',
+            fontSize: '28px',
+            fontWeight: '700',
+            color: THEME.text,
+          }}>
+            Window Depot
+          </h1>
+          <p style={{
+            margin: 0,
+            fontSize: '16px',
+            color: THEME.textLight,
+          }}>
+            Goal Tracker
+          </p>
+        </div>
+        
+        {users.length > 0 && (
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginBottom: '24px',
+            background: THEME.secondary,
+            padding: '4px',
+            borderRadius: '8px',
+          }}>
+            <button
+              onClick={() => setMode('select')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                background: mode === 'select' ? THEME.white : 'transparent',
+                border: 'none',
+                borderRadius: '6px',
+                color: mode === 'select' ? THEME.primary : THEME.textLight,
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              Select User
+            </button>
+            <button
+              onClick={() => setMode('create')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                background: mode === 'create' ? THEME.white : 'transparent',
+                border: 'none',
+                borderRadius: '6px',
+                color: mode === 'create' ? THEME.primary : THEME.textLight,
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              Create New
+            </button>
+          </div>
+        )}
+        
+        {mode === 'select' ? (
+          <div>
+            <div style={{ marginBottom: '16px' }}>
+              {users.map(user => (
+                <button
+                  key={user.id}
+                  onClick={() => onSelectUser(user)}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    marginBottom: '8px',
+                    background: THEME.secondary,
+                    border: 'none',
+                    borderRadius: '8px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseOver={(e) => e.target.style.background = THEME.accent}
+                  onMouseOut={(e) => e.target.style.background = THEME.secondary}
+                >
+                  <div style={{ fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                    {user.name}
+                  </div>
+                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                    {user.role === 'manager' ? '👔 Manager' : '👤 Employee'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              color: THEME.textLight,
+              cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={rememberUser}
+                onChange={(e) => onRememberChange(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              Remember my selection
+            </label>
+          </div>
+        ) : (
+          <div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: THEME.text,
+              }}>
+                Your Name
+              </label>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Enter your name"
+                maxLength={50}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                }}
+                onKeyPress={(e) => e.key === 'Enter' && handleCreate()}
+              />
+            </div>
+            
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: THEME.text,
+              }}>
+                Role
+              </label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="employee">Employee</option>
+                <option value="manager">Manager</option>
+              </select>
+            </div>
+            
+            <button
+              onClick={handleCreate}
+              disabled={!newName.trim()}
+              style={{
+                width: '100%',
+                padding: '16px',
+                background: newName.trim() ? THEME.primary : THEME.border,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: newName.trim() ? 'pointer' : 'not-allowed',
+                transition: 'all 0.2s',
+              }}
+            >
+              Get Started
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// DASHBOARD COMPONENT
+// ========================================
+
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement }) {
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Today's Progress
+      </h2>
+      
+      <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
+        {CATEGORIES.map(category => {
+          const count = todayStats[category.id] || 0;
+          const goal = currentUser.goals[category.id];
+          const progress = (count / goal) * 100;
+          const Icon = category.icon;
+          
+          return (
+            <div
+              key={category.id}
+              style={{
+                background: THEME.white,
+                borderRadius: '12px',
+                padding: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  background: category.color,
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Icon size={24} color={THEME.white} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                    {category.name}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: '700', color: category.color }}>
+                    {count} / {goal}
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{
+                height: '12px',
+                background: THEME.secondary,
+                borderRadius: '6px',
+                overflow: 'hidden',
+                marginBottom: '16px',
+                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)',
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.min(progress, 100)}%`,
+                  background: category.color,
+                  transition: 'width 0.3s ease',
+                }} />
+              </div>
+              
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => onDecrement(category.id)}
+                  disabled={count === 0}
+                  style={{
+                    flex: 1,
+                    padding: '18px',
+                    background: count === 0 ? THEME.border : THEME.danger,
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: THEME.white,
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    cursor: count === 0 ? 'not-allowed' : 'pointer',
+                    minHeight: '72px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <Minus size={28} />
+                </button>
+                <button
+                  onClick={() => onIncrement(category.id)}
+                  style={{
+                    flex: 1,
+                    padding: '18px',
+                    background: category.color,
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: THEME.white,
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    minHeight: '72px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <Plus size={28} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: THEME.text }}>
+        This Week
+      </h3>
+      
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        {CATEGORIES.map(category => {
+          const count = weekStats[category.id] || 0;
+          const Icon = category.icon;
+          
+          return (
+            <div
+              key={category.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 0',
+                borderBottom: `1px solid ${THEME.border}`,
+              }}
+            >
+              <Icon size={20} color={category.color} />
+              <div style={{ flex: 1, fontSize: '14px', color: THEME.text }}>
+                {category.name}
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: '700', color: category.color }}>
+                {count}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// GOALS COMPONENT
+// ========================================
+
+function Goals({ currentUser, onUpdateGoals }) {
+  const [goals, setGoals] = useState(currentUser.goals);
+  
+  const handleSave = () => {
+    onUpdateGoals(goals);
+  };
+  
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Daily Goals
+      </h2>
+      
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        {CATEGORIES.map(category => {
+          const Icon = category.icon;
+          
+          return (
+            <div
+              key={category.id}
+              style={{
+                marginBottom: '20px',
+                paddingBottom: '20px',
+                borderBottom: `1px solid ${THEME.border}`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                <Icon size={24} color={category.color} />
+                <div style={{ flex: 1, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                  {category.name}
+                </div>
+              </div>
+              
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={goals[category.id] || 0}
+                onChange={(e) => setGoals({ ...goals, [category.id]: parseInt(e.target.value) || 0 })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          );
+        })}
+        
+        <button
+          onClick={handleSave}
+          style={{
+            width: '100%',
+            padding: '16px',
+            background: THEME.primary,
+            border: 'none',
+            borderRadius: '8px',
+            color: THEME.white,
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+          }}
+        >
+          Save Goals
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// APPOINTMENTS COMPONENT
+// ========================================
+
+function Appointments({ appointments, onAdd, onDelete }) {
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({
+    customerName: '',
+    products: [],
+    notes: '',
+    date: getToday(),
+    countsAsDemo: true,
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const handleSubmit = () => {
+    if (onAdd(formData)) {
+      setFormData({
+        customerName: '',
+        products: [],
+        notes: '',
+        date: getToday(),
+        countsAsDemo: true,
+      });
+      setShowForm(false);
+    }
+  };
+  
+  const toggleProduct = (productId) => {
+    setFormData(prev => ({
+      ...prev,
+      products: prev.products.includes(productId)
+        ? prev.products.filter(p => p !== productId)
+        : [...prev.products, productId],
+    }));
+  };
+  
+  const filteredAppointments = appointments.filter(appt =>
+    appt.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+          Appointments
+        </h2>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          style={{
+            padding: '12px 20px',
+            background: THEME.primary,
+            border: 'none',
+            borderRadius: '8px',
+            color: THEME.white,
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <Plus size={20} />
+          Add Appointment
+        </button>
+      </div>
+      
+      {showForm && (
+        <div style={{
+          background: THEME.white,
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '20px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Customer Name
+            </label>
+            <input
+              type="text"
+              value={formData.customerName}
+              onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+              placeholder="Enter customer name"
+              maxLength={100}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Date
+            </label>
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              max={getToday()}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Product Interests
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+              {PRODUCT_INTERESTS.map(product => (
+                <button
+                  key={product.id}
+                  onClick={() => toggleProduct(product.id)}
+                  style={{
+                    padding: '12px',
+                    background: formData.products.includes(product.id) ? product.color : THEME.secondary,
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: formData.products.includes(product.id) ? THEME.white : THEME.text,
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {product.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Notes (optional)
+            </label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="Add any notes..."
+              maxLength={500}
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+              }}
+            />
+          </div>
+          
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '16px',
+            fontSize: '14px',
+            color: THEME.text,
+            cursor: 'pointer',
+          }}>
+            <input
+              type="checkbox"
+              checked={formData.countsAsDemo}
+              onChange={(e) => setFormData({ ...formData, countsAsDemo: e.target.checked })}
+              style={{ cursor: 'pointer' }}
+            />
+            Count as Demo
+          </label>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              onClick={handleSubmit}
+              disabled={!formData.customerName.trim()}
+              style={{
+                flex: 1,
+                padding: '16px',
+                background: formData.customerName.trim() ? THEME.success : THEME.border,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: formData.customerName.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Save Appointment
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              style={{
+                flex: 1,
+                padding: '16px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={20} color={THEME.textLight} style={{
+            position: 'absolute',
+            left: '12px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+          }} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search appointments..."
+            style={{
+              width: '100%',
+              padding: '12px 12px 12px 44px',
+              border: `2px solid ${THEME.border}`,
+              borderRadius: '8px',
+              fontSize: '16px',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+      </div>
+      
+      <div style={{ display: 'grid', gap: '12px' }}>
+        {filteredAppointments.length === 0 ? (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '12px',
+            padding: '40px 20px',
+            textAlign: 'center',
+            color: THEME.textLight,
+          }}>
+            {searchTerm ? 'No appointments match your search' : 'No appointments logged yet'}
+          </div>
+        ) : (
+          filteredAppointments.map(appt => (
+            <div
+              key={appt.id}
+              style={{
+                background: THEME.white,
+                borderRadius: '12px',
+                padding: '16px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                    {appt.customerName}
+                  </div>
+                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                    {formatDate(appt.date)}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onDelete(appt.id)}
+                  style={{
+                    padding: '8px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Trash2 size={18} color={THEME.danger} />
+                </button>
+              </div>
+              
+              {appt.products && appt.products.length > 0 && (
+                <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {appt.products.map(productId => {
+                    const product = PRODUCT_INTERESTS.find(p => p.id === productId);
+                    return product ? (
+                      <span
+                        key={productId}
+                        style={{
+                          padding: '4px 12px',
+                          background: product.color,
+                          color: THEME.white,
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        {product.label}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+              )}
+              
+              {appt.notes && (
+                <div style={{
+                  padding: '12px',
+                  background: THEME.secondary,
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  color: THEME.text,
+                  marginBottom: '8px',
+                }}>
+                  {appt.notes}
+                </div>
+              )}
+              
+              {appt.countsAsDemo && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 12px',
+                  background: THEME.success,
+                  color: THEME.white,
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                }}>
+                  <Calendar size={14} />
+                  Counted as Demo
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// FEED COMPONENT
+// ========================================
+
+function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost }) {
+  const [newPost, setNewPost] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [commentingId, setCommentingId] = useState(null);
+  const [newComment, setNewComment] = useState('');
+  
+  const handlePost = () => {
+    if (onAddPost(newPost)) {
+      setNewPost('');
+    }
+  };
+  
+  const handleEdit = (postId) => {
+    if (onEditPost(postId, editContent)) {
+      setEditingId(null);
+      setEditContent('');
+    }
+  };
+  
+  const handleComment = (postId) => {
+    if (onAddComment(postId, newComment)) {
+      setNewComment('');
+      setCommentingId(null);
+    }
+  };
+  
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Team Feed
+      </h2>
+      
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        <textarea
+          value={newPost}
+          onChange={(e) => setNewPost(e.target.value)}
+          placeholder="Share an update with the team..."
+          maxLength={500}
+          rows={3}
+          style={{
+            width: '100%',
+            padding: '12px',
+            border: `2px solid ${THEME.border}`,
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+            resize: 'vertical',
+            marginBottom: '12px',
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: THEME.textLight }}>
+            {newPost.length}/500
+          </span>
+          <button
+            onClick={handlePost}
+            disabled={!newPost.trim()}
+            style={{
+              padding: '12px 24px',
+              background: newPost.trim() ? THEME.primary : THEME.border,
+              border: 'none',
+              borderRadius: '8px',
+              color: THEME.white,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: newPost.trim() ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Post
+          </button>
+        </div>
+      </div>
+      
+      <div style={{ display: 'grid', gap: '16px' }}>
+        {feed.length === 0 ? (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '12px',
+            padding: '40px 20px',
+            textAlign: 'center',
+            color: THEME.textLight,
+          }}>
+            No posts yet. Be the first to share!
+          </div>
+        ) : (
+          feed.map(post => (
+            <div
+              key={post.id}
+              style={{
+                background: THEME.white,
+                borderRadius: '12px',
+                padding: '16px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                    {post.userName}
+                  </div>
+                  <div style={{ fontSize: '12px', color: THEME.textLight }}>
+                    {new Date(post.timestamp).toLocaleString()}
+                    {post.edited && ' (edited)'}
+                  </div>
+                </div>
+                {post.userId === currentUser.id && !post.isAuto && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => {
+                        setEditingId(post.id);
+                        setEditContent(post.content);
+                      }}
+                      style={{
+                        padding: '4px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Edit2 size={16} color={THEME.textLight} />
+                    </button>
+                    <button
+                      onClick={() => onDeletePost(post.id)}
+                      style={{
+                        padding: '4px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Trash2 size={16} color={THEME.danger} />
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {editingId === post.id ? (
+                <div>
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    maxLength={500}
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      border: `2px solid ${THEME.border}`,
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                      resize: 'vertical',
+                      marginBottom: '8px',
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => handleEdit(post.id)}
+                      style={{
+                        padding: '8px 16px',
+                        background: THEME.success,
+                        border: 'none',
+                        borderRadius: '6px',
+                        color: THEME.white,
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditContent('');
+                      }}
+                      style={{
+                        padding: '8px 16px',
+                        background: THEME.secondary,
+                        border: 'none',
+                        borderRadius: '6px',
+                        color: THEME.text,
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  fontSize: '14px',
+                  color: THEME.text,
+                  marginBottom: '12px',
+                  lineHeight: '1.5',
+                }}>
+                  {post.content}
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', gap: '16px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+                <button
+                  onClick={() => onToggleLike(post.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    background: (post.likes || []).includes(currentUser.id) ? THEME.accent : 'transparent',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: (post.likes || []).includes(currentUser.id) ? THEME.primary : THEME.textLight,
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ThumbsUp size={14} />
+                  {(post.likes || []).length}
+                </button>
+                <button
+                  onClick={() => setCommentingId(commentingId === post.id ? null : post.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: THEME.textLight,
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <MessageSquare size={14} />
+                  {(post.comments || []).length}
+                </button>
+              </div>
+              
+              {(post.comments || []).length > 0 && (
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+                  {post.comments.map(comment => (
+                    <div key={comment.id} style={{
+                      padding: '8px 12px',
+                      background: THEME.secondary,
+                      borderRadius: '8px',
+                      marginBottom: '8px',
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                        {comment.userName}
+                      </div>
+                      <div style={{ fontSize: '12px', color: THEME.text }}>
+                        {comment.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {commentingId === post.id && (
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+                  <textarea
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Write a comment..."
+                    maxLength={300}
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      border: `2px solid ${THEME.border}`,
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                      resize: 'vertical',
+                      marginBottom: '8px',
+                    }}
+                  />
+                  <button
+                    onClick={() => handleComment(post.id)}
+                    disabled={!newComment.trim()}
+                    style={{
+                      padding: '8px 16px',
+                      background: newComment.trim() ? THEME.primary : THEME.border,
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: THEME.white,
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: newComment.trim() ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    Comment
+                  </button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// LEADERBOARD COMPONENT
+// ========================================
+
+function Leaderboard({ leaderboard, currentUser }) {
+  const medals = [THEME.gold, THEME.silver, THEME.bronze];
+  
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Weekly Leaderboard
+      </h2>
+      
+      <div style={{ display: 'grid', gap: '12px' }}>
+        {leaderboard.length === 0 ? (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '12px',
+            padding: '40px 20px',
+            textAlign: 'center',
+            color: THEME.textLight,
+          }}>
+            No activity this week yet
+          </div>
+        ) : (
+          leaderboard.map((user, index) => (
+            <div
+              key={user.id}
+              style={{
+                background: user.id === currentUser.id ? THEME.accent : THEME.white,
+                borderRadius: '12px',
+                padding: '16px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                border: user.id === currentUser.id ? `2px solid ${THEME.primary}` : 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  background: index < 3 ? medals[index] : THEME.secondary,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  color: index < 3 ? THEME.white : THEME.textLight,
+                }}>
+                  {index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                    {user.name}
+                    {user.id === currentUser.id && ' (You)'}
+                  </div>
+                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                    {user.role === 'manager' ? 'Manager' : 'Employee'}
+                  </div>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: THEME.primary }}>
+                  {user.weeklyTotal}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// TEAM VIEW COMPONENT (Manager Only)
+// ========================================
+
+function TeamView({ users, dailyLogs }) {
+  const today = getToday();
+  
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Team Overview
+      </h2>
+      
+      <div style={{ display: 'grid', gap: '16px' }}>
+        {users.filter(u => u.role === 'employee').map(user => {
+          const stats = dailyLogs[today]?.[user.id] || { reviews: 0, demos: 0, callbacks: 0 };
+          const total = (stats.reviews || 0) + (stats.demos || 0) + (stats.callbacks || 0);
+          const goalTotal = user.goals.reviews + user.goals.demos + user.goals.callbacks;
+          const progress = (total / goalTotal) * 100;
+          
+          return (
+            <div
+              key={user.id}
+              style={{
+                background: THEME.white,
+                borderRadius: '12px',
+                padding: '16px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              }}
+            >
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                  {user.name}
+                </div>
+                <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                  {total} / {goalTotal} activities today
+                </div>
+              </div>
+              
+              <div style={{
+                height: '8px',
+                background: THEME.secondary,
+                borderRadius: '4px',
+                overflow: 'hidden',
+                marginBottom: '12px',
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.min(progress, 100)}%`,
+                  background: progress >= 100 ? THEME.success : 
+                             progress >= 50 ? THEME.warning : 
+                             THEME.primary,
+                  transition: 'width 0.3s ease',
+                }} />
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {CATEGORIES.map(category => {
+                  const count = stats[category.id] || 0;
+                  const goal = user.goals[category.id];
+                  const Icon = category.icon;
+                  
+                  return (
+                    <div
+                      key={category.id}
+                      style={{
+                        padding: '8px',
+                        background: THEME.secondary,
+                        borderRadius: '8px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <Icon size={16} color={category.color} style={{ marginBottom: '4px' }} />
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: category.color }}>
+                        {count}/{goal}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// ADMIN PANEL COMPONENT (Manager Only)
+// ========================================
+
+function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport }) {
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('employee');
+  const [editingGoals, setEditingGoals] = useState(null);
+  const [goals, setGoals] = useState({});
+  
+  const handleCreate = () => {
+    if (onCreateUser(newName, newRole)) {
+      setNewName('');
+      setShowForm(false);
+    }
+  };
+  
+  const handleSaveGoals = (userId) => {
+    onUpdateGoals(userId, goals);
+    setEditingGoals(null);
+    setGoals({});
+  };
+  
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+          Admin Panel
+        </h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={onExport}
+            style={{
+              padding: '12px 20px',
+              background: THEME.success,
+              border: 'none',
+              borderRadius: '8px',
+              color: THEME.white,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Download size={20} />
+            Export
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            style={{
+              padding: '12px 20px',
+              background: THEME.primary,
+              border: 'none',
+              borderRadius: '8px',
+              color: THEME.white,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Plus size={20} />
+            Add User
+          </button>
+        </div>
+      </div>
+      
+      {showForm && (
+        <div style={{
+          background: THEME.white,
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '20px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Name
+            </label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Enter name"
+              maxLength={50}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Role
+            </label>
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+            </select>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              onClick={handleCreate}
+              disabled={!newName.trim()}
+              style={{
+                flex: 1,
+                padding: '16px',
+                background: newName.trim() ? THEME.success : THEME.border,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: newName.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Create User
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              style={{
+                flex: 1,
+                padding: '16px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      
+      <div style={{ display: 'grid', gap: '12px' }}>
+        {users.map(user => (
+          <div
+            key={user.id}
+            style={{
+              background: THEME.white,
+              borderRadius: '12px',
+              padding: '16px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                  {user.name}
+                </div>
+                <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                  {user.role === 'manager' ? '👔 Manager' : '👤 Employee'}
+                </div>
+              </div>
+              <button
+                onClick={() => onDeleteUser(user.id)}
+                style={{
+                  padding: '8px',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <Trash2 size={18} color={THEME.danger} />
+              </button>
+            </div>
+            
+            {editingGoals === user.id ? (
+              <div>
+                <div style={{ marginBottom: '12px' }}>
+                  {CATEGORIES.map(category => (
+                    <div key={category.id} style={{ marginBottom: '12px' }}>
+                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', fontWeight: '600', color: THEME.text }}>
+                        {category.name} Goal
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={goals[category.id] !== undefined ? goals[category.id] : user.goals[category.id]}
+                        onChange={(e) => setGoals({ ...goals, [category.id]: parseInt(e.target.value) || 0 })}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          border: `2px solid ${THEME.border}`,
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => handleSaveGoals(user.id)}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      background: THEME.success,
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: THEME.white,
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingGoals(null);
+                      setGoals({});
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      background: THEME.secondary,
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: THEME.text,
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' }}>
+                  {CATEGORIES.map(category => {
+                    const goal = user.goals[category.id];
+                    const Icon = category.icon;
+                    
+                    return (
+                      <div
+                        key={category.id}
+                        style={{
+                          padding: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '8px',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <Icon size={16} color={category.color} style={{ marginBottom: '4px' }} />
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: THEME.text }}>
+                          Goal: {goal}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingGoals(user.id);
+                    setGoals({});
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: THEME.primary,
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: THEME.white,
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Settings size={14} />
+                  Edit Goals
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// REPORTS COMPONENT (Manager Only)
+// ========================================
+
+function Reports({ users, dailyLogs, appointments }) {
+  const [timeRange, setTimeRange] = useState('week');
+  
+  const chartData = useMemo(() => {
+    const data = users.filter(u => u.role === 'employee').map(user => {
+      let total = 0;
+      const startDate = timeRange === 'week' ? getWeekStart() : getMonthStart();
+      
+      Object.entries(dailyLogs).forEach(([date, usersData]) => {
+        if (date >= startDate && usersData[user.id]) {
+          total += (usersData[user.id].reviews || 0);
+          total += (usersData[user.id].demos || 0);
+          total += (usersData[user.id].callbacks || 0);
+        }
+      });
+      
+      return {
+        name: user.name,
+        total,
+      };
+    });
+    
+    return data.sort((a, b) => b.total - a.total);
+  }, [users, dailyLogs, timeRange]);
+  
+  const categoryData = useMemo(() => {
+    const data = { reviews: 0, demos: 0, callbacks: 0 };
+    const startDate = timeRange === 'week' ? getWeekStart() : getMonthStart();
+    
+    Object.entries(dailyLogs).forEach(([date, usersData]) => {
+      if (date >= startDate) {
+        Object.values(usersData).forEach(stats => {
+          data.reviews += stats.reviews || 0;
+          data.demos += stats.demos || 0;
+          data.callbacks += stats.callbacks || 0;
+        });
+      }
+    });
+    
+    return [
+      { name: 'Reviews', value: data.reviews, color: THEME.warning },
+      { name: 'Demos', value: data.demos, color: THEME.success },
+      { name: 'Callbacks', value: data.callbacks, color: THEME.primary },
+    ];
+  }, [dailyLogs, timeRange]);
+  
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+          Reports
+        </h2>
+        <select
+          value={timeRange}
+          onChange={(e) => setTimeRange(e.target.value)}
+          style={{
+            padding: '8px 16px',
+            border: `2px solid ${THEME.border}`,
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+          }}
+        >
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+        </select>
+      </div>
+      
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+          Team Performance
+        </h3>
+        {chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={THEME.border} />
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Bar dataKey="total" fill={THEME.primary} radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: THEME.textLight }}>
+            No data available
+          </div>
+        )}
+      </div>
+      
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+          Activity Breakdown
+        </h3>
+        {categoryData.some(d => d.value > 0) ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={categoryData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={(entry) => `${entry.name}: ${entry.value}`}
+                outerRadius={100}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {categoryData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: THEME.textLight }}>
+            No activity data
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
+// BOTTOM NAVIGATION
+// ========================================
+
+function BottomNav({ activeView, onViewChange, isManager }) {
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Target, roles: ['employee', 'manager'] },
+    { id: 'goals', label: 'Goals', icon: Target, roles: ['employee', 'manager'] },
+    { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['employee', 'manager'] },
+    { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
+    { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
+    { id: 'team', label: 'Team', icon: Users, roles: ['manager'] },
+    { id: 'admin', label: 'Admin', icon: Settings, roles: ['manager'] },
+    { id: 'reports', label: 'Reports', icon: TrendingUp, roles: ['manager'] },
+  ];
+  
+  const visibleItems = navItems.filter(item => 
+    isManager ? item.roles.includes('manager') : item.roles.includes('employee')
+  );
+  
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      background: THEME.white,
+      borderTop: `1px solid ${THEME.border}`,
+      display: 'grid',
+      gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)`,
+      boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
+      zIndex: 1000,
+    }}>
+      {visibleItems.map(item => {
+        const Icon = item.icon;
+        const isActive = activeView === item.id;
+        
+        return (
+          <button
+            key={item.id}
+            onClick={() => onViewChange(item.id)}
+            style={{
+              padding: '12px 8px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              color: isActive ? THEME.primary : THEME.textLight,
+              transition: 'all 0.2s',
+            }}
+          >
+            <Icon size={20} />
+            <span style={{ fontSize: '10px', fontWeight: '600' }}>
+              {item.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
