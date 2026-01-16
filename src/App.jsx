@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
   syncAllFromSupabase, 
   queueSyncOperation, 
@@ -249,9 +249,9 @@ export default function WindowDepotTracker() {
         await initSyncQueue();
         startSyncInterval();
         
-        // Try to sync from Supabase first (if online)
+        // Try to sync from Supabase first (if online and configured)
         let syncedData = null;
-        if (navigator.onLine) {
+        if (navigator.onLine && isSupabaseConfigured) {
           try {
             syncedData = await syncAllFromSupabase();
           } catch (error) {
@@ -578,8 +578,8 @@ export default function WindowDepotTracker() {
     };
     
     try {
-      // Insert into Supabase
-      if (navigator.onLine) {
+      // Insert into Supabase if configured and online
+      if (navigator.onLine && isSupabaseConfigured) {
         const { data, error } = await supabase
           .from('users')
           .insert({
@@ -589,9 +589,9 @@ export default function WindowDepotTracker() {
           })
           .select()
           .single();
-        
+
         if (error) throw error;
-        
+
         const newUser = {
           id: data.id,
           name: data.name,
@@ -599,14 +599,14 @@ export default function WindowDepotTracker() {
           goals: data.goals,
           createdAt: data.created_at,
         };
-        
+
         setUsers(prev => [...prev, newUser]);
         setCurrentUser(newUser);
         await storage.set('users', [...users, newUser]);
         showToast(`Welcome, ${sanitizedName}!`, 'success');
         return true;
       } else {
-        // Offline: create with temporary ID, queue for sync
+        // Offline or Supabase not configured: create with temporary ID, queue for sync
         const tempId = `temp_${Date.now()}`;
         const newUser = {
           id: tempId,
@@ -615,22 +615,24 @@ export default function WindowDepotTracker() {
           goals: goals,
           createdAt: new Date().toISOString(),
         };
-        
+
         setUsers(prev => [...prev, newUser]);
         setCurrentUser(newUser);
         await storage.set('users', [...users, newUser]);
-        
-        // Queue for sync
-        await queueSyncOperation({
-          type: 'insert',
-          table: 'users',
-          data: {
-            name: sanitizedName,
-            role: role || 'employee',
-            goals: goals,
-          },
-        });
-        
+
+        // Queue for sync when both online and configured
+        if (isSupabaseConfigured) {
+          await queueSyncOperation({
+            type: 'insert',
+            table: 'users',
+            data: {
+              name: sanitizedName,
+              role: role || 'employee',
+              goals: goals,
+            },
+          });
+        }
+
         showToast(`Welcome, ${sanitizedName}!`, 'success');
         return true;
       }
@@ -648,14 +650,14 @@ export default function WindowDepotTracker() {
     
     try {
       // Delete from Supabase (cascade will handle related data)
-      if (navigator.onLine && !userId.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !userId.startsWith('temp_')) {
         const { error } = await supabase
           .from('users')
           .delete()
           .eq('id', userId);
-        
+
         if (error) throw error;
-      } else if (!userId.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !userId.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'delete',
@@ -720,14 +722,14 @@ export default function WindowDepotTracker() {
       await storage.set('users', updatedUsers);
       
       // Update in Supabase
-      if (navigator.onLine && !userId.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !userId.startsWith('temp_')) {
         const { error } = await supabase
           .from('users')
           .update({ goals: updatedUser.goals })
           .eq('id', userId);
         
         if (error) throw error;
-      } else if (!userId.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !userId.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'update',
@@ -773,7 +775,7 @@ export default function WindowDepotTracker() {
     
     // Sync to Supabase
     try {
-      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         const { error } = await supabase
           .from('daily_logs')
           .upsert({
@@ -786,7 +788,7 @@ export default function WindowDepotTracker() {
           });
         
         if (error) throw error;
-      } else if (!currentUser.id.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'upsert',
@@ -824,7 +826,7 @@ export default function WindowDepotTracker() {
       
       // Create post in Supabase
       try {
-        if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+        if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
           const { data: postData, error: postError } = await supabase
             .from('feed_posts')
             .insert({
@@ -927,7 +929,7 @@ export default function WindowDepotTracker() {
     
     // Sync to Supabase
     try {
-      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         const { error } = await supabase
           .from('daily_logs')
           .upsert({
@@ -940,7 +942,7 @@ export default function WindowDepotTracker() {
           });
         
         if (error) throw error;
-      } else if (!currentUser.id.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'upsert',
@@ -997,7 +999,7 @@ export default function WindowDepotTracker() {
       let newAppt;
       
       // Insert into Supabase
-      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         const { data, error } = await supabase
           .from('appointments')
           .insert(appointmentDataForDB)
@@ -1066,14 +1068,14 @@ export default function WindowDepotTracker() {
     
     try {
       // Delete from Supabase
-      if (navigator.onLine && !apptId.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !apptId.startsWith('temp_')) {
         const { error } = await supabase
           .from('appointments')
           .delete()
           .eq('id', apptId);
         
         if (error) throw error;
-      } else if (!apptId.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !apptId.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'delete',
@@ -1107,7 +1109,7 @@ export default function WindowDepotTracker() {
       let newPost;
       
       // Insert into Supabase
-      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
         const { data, error } = await supabase
           .from('feed_posts')
           .insert({
@@ -1340,14 +1342,14 @@ export default function WindowDepotTracker() {
     
     try {
       // Delete from Supabase (cascade will handle likes and comments)
-      if (navigator.onLine && !postId.startsWith('temp_')) {
+      if (navigator.onLine && isSupabaseConfigured && !postId.startsWith('temp_')) {
         const { error } = await supabase
           .from('feed_posts')
           .delete()
           .eq('id', postId);
         
         if (error) throw error;
-      } else if (!postId.startsWith('temp_')) {
+      } else if (isSupabaseConfigured && !postId.startsWith('temp_')) {
         // Queue for sync if offline
         await queueSyncOperation({
           type: 'delete',
