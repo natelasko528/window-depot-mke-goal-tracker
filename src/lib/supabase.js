@@ -17,12 +17,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
   // Override methods to prevent actual API calls and handle method chaining
   const dummyQuery = {
     select: () => dummyQuery,
+    single: () => dummyQuery,
     order: () => dummyQuery,
     eq: () => dummyQuery,
-    insert: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    update: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    delete: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    upsert: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    insert: () => dummyQuery,
+    update: () => dummyQuery,
+    delete: () => dummyQuery,
+    upsert: () => dummyQuery,
     then: (resolve) => resolve({ data: null, error: { message: 'Supabase not configured' } }),
   };
   supabase.from = () => dummyQuery;
@@ -38,5 +39,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   });
 }
 
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 export { supabase };
 export default supabase;
