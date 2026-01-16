@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
+import { supabase } from './lib/supabase';
+import { 
+  syncAllFromSupabase, 
+  queueSyncOperation, 
+  initSyncQueue, 
+  startSyncInterval, 
+  stopSyncInterval 
+} from './lib/sync';
 
 // ========================================
 // THEME & CONSTANTS
@@ -237,7 +245,21 @@ export default function WindowDepotTracker() {
       try {
         setIsLoading(true);
         
-        // Load all data with timeout protection
+        // Initialize sync queue
+        await initSyncQueue();
+        startSyncInterval();
+        
+        // Try to sync from Supabase first (if online)
+        let syncedData = null;
+        if (navigator.onLine) {
+          try {
+            syncedData = await syncAllFromSupabase();
+          } catch (error) {
+            console.error('Supabase sync failed, using local data:', error);
+          }
+        }
+        
+        // Load all data with timeout protection (from IndexedDB, which may have been updated by sync)
         const loadPromises = [
           storage.get('users', []),
           storage.get('dailyLogs', {}),
@@ -258,10 +280,11 @@ export default function WindowDepotTracker() {
         
         const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember] = results;
         
-        setUsers(loadedUsers || []);
-        setDailyLogs(loadedLogs || {});
-        setAppointments(loadedAppts || []);
-        setFeed(loadedFeed || []);
+        // Use synced data if available, otherwise use local
+        setUsers(syncedData?.users || loadedUsers || []);
+        setDailyLogs(syncedData?.dailyLogs || loadedLogs || {});
+        setAppointments(syncedData?.appointments || loadedAppts || []);
+        setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
         
         if (shouldRemember && savedUser) {
@@ -290,6 +313,11 @@ export default function WindowDepotTracker() {
     };
     
     initializeApp();
+    
+    // Cleanup on unmount
+    return () => {
+      stopSyncInterval();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
@@ -303,6 +331,10 @@ export default function WindowDepotTracker() {
     const handleOnline = () => {
       setIsOnline(true);
       showToast('Back online', 'success');
+      // Process sync queue when coming back online
+      import('./lib/sync').then(({ processSyncQueue }) => {
+        processSyncQueue();
+      });
     };
     
     const handleOffline = () => {
@@ -319,6 +351,121 @@ export default function WindowDepotTracker() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  
+  // ========================================
+  // REAL-TIME SUBSCRIPTIONS
+  // ========================================
+  
+  useEffect(() => {
+    if (!hasInitialized.current || !isOnline) return;
+    
+    // Subscribe to feed_posts changes
+    const feedSubscription = supabase
+      .channel('feed_posts_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'feed_posts' },
+        async (payload) => {
+          // Reload feed from Supabase
+          const { syncFeedFromSupabase } = await import('./lib/sync');
+          const updatedFeed = await syncFeedFromSupabase();
+          if (updatedFeed) {
+            setFeed(updatedFeed);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Subscribe to feed_likes changes
+    const likesSubscription = supabase
+      .channel('feed_likes_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'feed_likes' },
+        async (payload) => {
+          // Reload feed to get updated likes
+          const { syncFeedFromSupabase } = await import('./lib/sync');
+          const updatedFeed = await syncFeedFromSupabase();
+          if (updatedFeed) {
+            setFeed(updatedFeed);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Subscribe to feed_comments changes
+    const commentsSubscription = supabase
+      .channel('feed_comments_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'feed_comments' },
+        async (payload) => {
+          // Reload feed to get updated comments
+          const { syncFeedFromSupabase } = await import('./lib/sync');
+          const updatedFeed = await syncFeedFromSupabase();
+          if (updatedFeed) {
+            setFeed(updatedFeed);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Subscribe to daily_logs changes
+    const dailyLogsSubscription = supabase
+      .channel('daily_logs_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'daily_logs' },
+        async (payload) => {
+          // Reload daily logs from Supabase
+          const { syncDailyLogsFromSupabase } = await import('./lib/sync');
+          const updatedLogs = await syncDailyLogsFromSupabase();
+          if (updatedLogs) {
+            setDailyLogs(updatedLogs);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Subscribe to appointments changes
+    const appointmentsSubscription = supabase
+      .channel('appointments_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        async (payload) => {
+          // Reload appointments from Supabase
+          const { syncAppointmentsFromSupabase } = await import('./lib/sync');
+          const updatedAppts = await syncAppointmentsFromSupabase();
+          if (updatedAppts) {
+            setAppointments(updatedAppts);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Subscribe to users changes
+    const usersSubscription = supabase
+      .channel('users_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'users' },
+        async (payload) => {
+          // Reload users from Supabase
+          const { syncUsersFromSupabase } = await import('./lib/sync');
+          const updatedUsers = await syncUsersFromSupabase();
+          if (updatedUsers) {
+            setUsers(updatedUsers);
+          }
+        }
+      )
+      .subscribe();
+    
+    // Cleanup subscriptions on unmount
+    return () => {
+      feedSubscription.unsubscribe();
+      likesSubscription.unsubscribe();
+      commentsSubscription.unsubscribe();
+      dailyLogsSubscription.unsubscribe();
+      appointmentsSubscription.unsubscribe();
+      usersSubscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
   
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
@@ -410,7 +557,7 @@ export default function WindowDepotTracker() {
   // USER MANAGEMENT
   // ========================================
   
-  const createUser = useCallback((name, role) => {
+  const createUser = useCallback(async (name, role) => {
     const validationError = VALIDATIONS.userName(name);
     if (validationError) {
       showToast(validationError, 'error');
@@ -424,22 +571,74 @@ export default function WindowDepotTracker() {
       return false;
     }
     
-    const newUser = {
-      id: Date.now().toString(),
-      name: sanitizedName,
-      role: role || 'employee',
-      goals: {
-        reviews: 5,
-        demos: 3,
-        callbacks: 10,
-      },
-      createdAt: new Date().toISOString(),
+    const goals = {
+      reviews: 5,
+      demos: 3,
+      callbacks: 10,
     };
     
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
-    showToast(`Welcome, ${sanitizedName}!`, 'success');
-    return true;
+    try {
+      // Insert into Supabase
+      if (navigator.onLine) {
+        const { data, error } = await supabase
+          .from('users')
+          .insert({
+            name: sanitizedName,
+            role: role || 'employee',
+            goals: goals,
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        const newUser = {
+          id: data.id,
+          name: data.name,
+          role: data.role,
+          goals: data.goals,
+          createdAt: data.created_at,
+        };
+        
+        setUsers(prev => [...prev, newUser]);
+        setCurrentUser(newUser);
+        await storage.set('users', [...users, newUser]);
+        showToast(`Welcome, ${sanitizedName}!`, 'success');
+        return true;
+      } else {
+        // Offline: create with temporary ID, queue for sync
+        const tempId = `temp_${Date.now()}`;
+        const newUser = {
+          id: tempId,
+          name: sanitizedName,
+          role: role || 'employee',
+          goals: goals,
+          createdAt: new Date().toISOString(),
+        };
+        
+        setUsers(prev => [...prev, newUser]);
+        setCurrentUser(newUser);
+        await storage.set('users', [...users, newUser]);
+        
+        // Queue for sync
+        await queueSyncOperation({
+          type: 'insert',
+          table: 'users',
+          data: {
+            name: sanitizedName,
+            role: role || 'employee',
+            goals: goals,
+          },
+        });
+        
+        showToast(`Welcome, ${sanitizedName}!`, 'success');
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to create user:', error);
+      showToast('Failed to create user. Please try again.', 'error');
+      return false;
+    }
   }, [users, showToast]);
   
   const deleteUser = useCallback(async (userId) => {
@@ -448,9 +647,26 @@ export default function WindowDepotTracker() {
     }
     
     try {
+      // Delete from Supabase (cascade will handle related data)
+      if (navigator.onLine && !userId.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', userId);
+        
+        if (error) throw error;
+      } else if (!userId.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'delete',
+          table: 'users',
+          id: userId,
+        });
+      }
+      
       setUsers(prev => prev.filter(u => u.id !== userId));
       
-      // Clean up related data
+      // Clean up related data locally
       setDailyLogs(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
@@ -464,17 +680,24 @@ export default function WindowDepotTracker() {
       setAppointments(prev => prev.filter(a => a.userId !== userId));
       setFeed(prev => prev.filter(p => p.userId !== userId));
       
+      // Update storage
+      await storage.set('users', users.filter(u => u.id !== userId));
+      await storage.set('dailyLogs', dailyLogs);
+      await storage.set('appointments', appointments.filter(a => a.userId !== userId));
+      await storage.set('feed', feed.filter(p => p.userId !== userId));
+      
       if (currentUser?.id === userId) {
         setCurrentUser(null);
       }
       
       showToast('User deleted successfully', 'success');
     } catch (error) {
+      console.error('Failed to delete user:', error);
       showToast('Failed to delete user', 'error');
     }
-  }, [currentUser, showToast]);
+  }, [currentUser, showToast, users, dailyLogs, appointments, feed]);
   
-  const updateUserGoals = useCallback((userId, goals) => {
+  const updateUserGoals = useCallback(async (userId, goals) => {
     const errors = [];
     
     Object.entries(goals).forEach(([key, value]) => {
@@ -487,34 +710,99 @@ export default function WindowDepotTracker() {
       return;
     }
     
-    setUsers(prev => prev.map(u => 
-      u.id === userId ? { ...u, goals: { ...u.goals, ...goals } } : u
-    ));
-    
-    showToast('Goals updated successfully', 'success');
-  }, [showToast]);
+    try {
+      const updatedUsers = users.map(u => 
+        u.id === userId ? { ...u, goals: { ...u.goals, ...goals } } : u
+      );
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      
+      setUsers(updatedUsers);
+      await storage.set('users', updatedUsers);
+      
+      // Update in Supabase
+      if (navigator.onLine && !userId.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('users')
+          .update({ goals: updatedUser.goals })
+          .eq('id', userId);
+        
+        if (error) throw error;
+      } else if (!userId.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'update',
+          table: 'users',
+          id: userId,
+          data: { goals: updatedUser.goals },
+        });
+      }
+      
+      showToast('Goals updated successfully', 'success');
+    } catch (error) {
+      console.error('Failed to update goals:', error);
+      showToast('Failed to update goals', 'error');
+    }
+  }, [showToast, users]);
   
   // ========================================
   // TRACKING FUNCTIONS
   // ========================================
   
-  const handleIncrement = useCallback((category) => {
+  const handleIncrement = useCallback(async (category) => {
     if (!currentUser) return;
     
     const today = getToday();
     const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
     const goal = currentUser.goals[category];
+    const newCount = currentCount + 1;
     
-    setDailyLogs(prev => ({
-      ...prev,
+    // Update local state immediately
+    const updatedLogs = {
+      ...dailyLogs,
       [today]: {
-        ...prev[today],
+        ...dailyLogs[today],
         [currentUser.id]: {
-          ...prev[today]?.[currentUser.id],
-          [category]: currentCount + 1,
+          ...dailyLogs[today]?.[currentUser.id],
+          [category]: newCount,
         },
       },
-    }));
+    };
+    
+    setDailyLogs(updatedLogs);
+    await storage.set('dailyLogs', updatedLogs);
+    
+    // Sync to Supabase
+    try {
+      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('daily_logs')
+          .upsert({
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          }, {
+            onConflict: 'user_id,date,category',
+          });
+        
+        if (error) throw error;
+      } else if (!currentUser.id.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'upsert',
+          table: 'daily_logs',
+          conflictKey: 'user_id,date,category',
+          data: {
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to sync daily log:', error);
+    }
     
     // Auto-post to feed for reviews and callbacks
     if (category === 'reviews' || category === 'callbacks') {
@@ -534,29 +822,78 @@ export default function WindowDepotTracker() {
       const messageList = messages[category];
       const message = messageList[Math.floor(Math.random() * messageList.length)];
       
-      const newPost = {
-        id: Date.now().toString() + Math.random(),
-        userId: currentUser.id,
-        userName: currentUser.name,
-        content: sanitizeInput(message),
-        timestamp: Date.now(),
-        likes: [],
-        comments: [],
-        isAuto: true,
-      };
-      
-      setFeed(prev => [newPost, ...prev]);
+      // Create post in Supabase
+      try {
+        if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+          const { data: postData, error: postError } = await supabase
+            .from('feed_posts')
+            .insert({
+              user_id: currentUser.id,
+              content: sanitizeInput(message),
+              type: 'auto',
+            })
+            .select(`
+              *,
+              user:users(name)
+            `)
+            .single();
+          
+          if (!postError && postData) {
+            const newPost = {
+              id: postData.id,
+              userId: postData.user_id,
+              userName: postData.user?.name || currentUser.name,
+              content: postData.content,
+              timestamp: new Date(postData.created_at).getTime(),
+              likes: [],
+              comments: [],
+              isAuto: true,
+            };
+            setFeed(prev => [newPost, ...prev]);
+            await storage.set('feed', [newPost, ...feed]);
+          }
+        } else {
+          // Offline: create local post, queue for sync
+          const tempPostId = `temp_${Date.now()}`;
+          const newPost = {
+            id: tempPostId,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            content: sanitizeInput(message),
+            timestamp: Date.now(),
+            likes: [],
+            comments: [],
+            isAuto: true,
+          };
+          setFeed(prev => [newPost, ...prev]);
+          await storage.set('feed', [newPost, ...feed]);
+          
+          if (!currentUser.id.startsWith('temp_')) {
+            await queueSyncOperation({
+              type: 'insert',
+              table: 'feed_posts',
+              data: {
+                user_id: currentUser.id,
+                content: sanitizeInput(message),
+                type: 'auto',
+              },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to create feed post:', error);
+      }
     }
     
     // Check for goal completion
-    if (currentCount + 1 === goal) {
+    if (newCount === goal) {
       setShowCelebration(true);
       setTimeout(() => setShowCelebration(false), 2000);
       showToast(`🎉 ${category} goal complete!`, 'success');
     }
-  }, [currentUser, dailyLogs, showToast]);
+  }, [currentUser, dailyLogs, showToast, feed]);
   
-  const handleDecrement = useCallback((category) => {
+  const handleDecrement = useCallback(async (category) => {
     if (!currentUser) return;
     
     const today = getToday();
@@ -571,23 +908,62 @@ export default function WindowDepotTracker() {
       }
     }
     
-    setDailyLogs(prev => ({
-      ...prev,
+    const newCount = Math.max(0, currentCount - 1);
+    
+    // Update local state immediately
+    const updatedLogs = {
+      ...dailyLogs,
       [today]: {
-        ...prev[today],
+        ...dailyLogs[today],
         [currentUser.id]: {
-          ...prev[today]?.[currentUser.id],
-          [category]: Math.max(0, currentCount - 1),
+          ...dailyLogs[today]?.[currentUser.id],
+          [category]: newCount,
         },
       },
-    }));
+    };
+    
+    setDailyLogs(updatedLogs);
+    await storage.set('dailyLogs', updatedLogs);
+    
+    // Sync to Supabase
+    try {
+      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('daily_logs')
+          .upsert({
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          }, {
+            onConflict: 'user_id,date,category',
+          });
+        
+        if (error) throw error;
+      } else if (!currentUser.id.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'upsert',
+          table: 'daily_logs',
+          conflictKey: 'user_id,date,category',
+          data: {
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to sync daily log:', error);
+    }
   }, [currentUser, dailyLogs]);
   
   // ========================================
   // APPOINTMENT MANAGEMENT
   // ========================================
   
-  const addAppointment = useCallback((appointmentData) => {
+  const addAppointment = useCallback(async (appointmentData) => {
     const validationError = VALIDATIONS.customerName(appointmentData.customerName);
     if (validationError) {
       showToast(validationError, 'error');
@@ -606,104 +982,336 @@ export default function WindowDepotTracker() {
       return false;
     }
     
-    const newAppt = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      customerName: sanitizeInput(appointmentData.customerName),
-      products: appointmentData.products || [],
-      notes: sanitizeInput(appointmentData.notes || ''),
-      date: appointmentData.date || getToday(),
-      timestamp: Date.now(),
-      countsAsDemo: appointmentData.countsAsDemo !== false,
-    };
-    
-    setAppointments(prev => [newAppt, ...prev]);
-    
-    // If counts as demo, increment demo count
-    if (newAppt.countsAsDemo) {
-      handleIncrement('demos');
+    try {
+      const appointmentDate = appointmentData.date || getToday();
+      const appointmentDataForDB = {
+        user_id: currentUser.id,
+        customer_name: sanitizeInput(appointmentData.customerName),
+        products: appointmentData.products || [],
+        notes: sanitizeInput(appointmentData.notes || ''),
+        date: appointmentDate,
+        time: appointmentData.time || null,
+        counts_as_demo: appointmentData.countsAsDemo !== false,
+      };
+      
+      let newAppt;
+      
+      // Insert into Supabase
+      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+        const { data, error } = await supabase
+          .from('appointments')
+          .insert(appointmentDataForDB)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        newAppt = {
+          id: data.id,
+          userId: data.user_id,
+          userName: currentUser.name,
+          customerName: data.customer_name,
+          products: data.products || [],
+          notes: data.notes || '',
+          date: data.date,
+          time: data.time,
+          timestamp: new Date(data.created_at).getTime(),
+          countsAsDemo: data.counts_as_demo,
+        };
+      } else {
+        // Offline: create with temporary ID
+        const tempId = `temp_${Date.now()}`;
+        newAppt = {
+          id: tempId,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          customerName: sanitizeInput(appointmentData.customerName),
+          products: appointmentData.products || [],
+          notes: sanitizeInput(appointmentData.notes || ''),
+          date: appointmentDate,
+          time: appointmentData.time,
+          timestamp: Date.now(),
+          countsAsDemo: appointmentData.countsAsDemo !== false,
+        };
+        
+        // Queue for sync
+        if (!currentUser.id.startsWith('temp_')) {
+          await queueSyncOperation({
+            type: 'insert',
+            table: 'appointments',
+            data: appointmentDataForDB,
+          });
+        }
+      }
+      
+      setAppointments(prev => [newAppt, ...prev]);
+      await storage.set('appointments', [newAppt, ...appointments]);
+      
+      // If counts as demo, increment demo count
+      if (newAppt.countsAsDemo) {
+        await handleIncrement('demos');
+      }
+      
+      showToast('Appointment logged successfully', 'success');
+      return true;
+    } catch (error) {
+      console.error('Failed to add appointment:', error);
+      showToast('Failed to add appointment', 'error');
+      return false;
     }
-    
-    showToast('Appointment logged successfully', 'success');
-    return true;
-  }, [currentUser, showToast, handleIncrement]);
+  }, [currentUser, showToast, handleIncrement, appointments]);
   
-  const deleteAppointment = useCallback((apptId) => {
+  const deleteAppointment = useCallback(async (apptId) => {
     if (!window.confirm('Delete this appointment?')) return;
     
-    setAppointments(prev => prev.filter(a => a.id !== apptId));
-    showToast('Appointment deleted', 'success');
-  }, [showToast]);
+    try {
+      // Delete from Supabase
+      if (navigator.onLine && !apptId.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('appointments')
+          .delete()
+          .eq('id', apptId);
+        
+        if (error) throw error;
+      } else if (!apptId.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'delete',
+          table: 'appointments',
+          id: apptId,
+        });
+      }
+      
+      setAppointments(prev => prev.filter(a => a.id !== apptId));
+      await storage.set('appointments', appointments.filter(a => a.id !== apptId));
+      showToast('Appointment deleted', 'success');
+    } catch (error) {
+      console.error('Failed to delete appointment:', error);
+      showToast('Failed to delete appointment', 'error');
+    }
+  }, [showToast, appointments]);
   
   // ========================================
   // FEED MANAGEMENT
   // ========================================
   
-  const addPost = useCallback((content) => {
+  const addPost = useCallback(async (content) => {
     const validationError = VALIDATIONS.postContent(content);
     if (validationError) {
       showToast(validationError, 'error');
       return false;
     }
     
-    const newPost = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      content: sanitizeInput(content),
-      timestamp: Date.now(),
-      likes: [],
-      comments: [],
-      isAuto: false,
-    };
-    
-    setFeed(prev => [newPost, ...prev]);
-    showToast('Post created', 'success');
-    return true;
-  }, [currentUser, showToast]);
+    try {
+      const sanitizedContent = sanitizeInput(content);
+      let newPost;
+      
+      // Insert into Supabase
+      if (navigator.onLine && !currentUser.id.startsWith('temp_')) {
+        const { data, error } = await supabase
+          .from('feed_posts')
+          .insert({
+            user_id: currentUser.id,
+            content: sanitizedContent,
+            type: 'manual',
+          })
+          .select(`
+            *,
+            user:users(name)
+          `)
+          .single();
+        
+        if (error) throw error;
+        
+        newPost = {
+          id: data.id,
+          userId: data.user_id,
+          userName: data.user?.name || currentUser.name,
+          content: data.content,
+          timestamp: new Date(data.created_at).getTime(),
+          likes: [],
+          comments: [],
+          isAuto: false,
+        };
+      } else {
+        // Offline: create with temporary ID
+        const tempId = `temp_${Date.now()}`;
+        newPost = {
+          id: tempId,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          content: sanitizedContent,
+          timestamp: Date.now(),
+          likes: [],
+          comments: [],
+          isAuto: false,
+        };
+        
+        // Queue for sync
+        if (!currentUser.id.startsWith('temp_')) {
+          await queueSyncOperation({
+            type: 'insert',
+            table: 'feed_posts',
+            data: {
+              user_id: currentUser.id,
+              content: sanitizedContent,
+              type: 'manual',
+            },
+          });
+        }
+      }
+      
+      setFeed(prev => [newPost, ...prev]);
+      await storage.set('feed', [newPost, ...feed]);
+      showToast('Post created', 'success');
+      return true;
+    } catch (error) {
+      console.error('Failed to add post:', error);
+      showToast('Failed to create post', 'error');
+      return false;
+    }
+  }, [currentUser, showToast, feed]);
   
-  const toggleLike = useCallback((postId) => {
+  const toggleLike = useCallback(async (postId) => {
     if (!currentUser) return;
     
-    setFeed(prev => prev.map(post => {
-      if (post.id !== postId) return post;
+    const post = feed.find(p => p.id === postId);
+    if (!post) return;
+    
+    const likes = post.likes || [];
+    const hasLiked = likes.includes(currentUser.id);
+    
+    try {
+      if (navigator.onLine && !postId.startsWith('temp_') && !currentUser.id.startsWith('temp_')) {
+        if (hasLiked) {
+          // Remove like
+          const { error } = await supabase
+            .from('feed_likes')
+            .delete()
+            .eq('post_id', postId)
+            .eq('user_id', currentUser.id);
+          
+          if (error) throw error;
+        } else {
+          // Add like
+          const { error } = await supabase
+            .from('feed_likes')
+            .upsert({
+              post_id: postId,
+              user_id: currentUser.id,
+            }, {
+              onConflict: 'post_id,user_id',
+            });
+          
+          if (error) throw error;
+        }
+      } else if (!postId.startsWith('temp_') && !currentUser.id.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: hasLiked ? 'delete' : 'upsert',
+          table: 'feed_likes',
+          id: hasLiked ? postId : undefined,
+          conflictKey: 'post_id,user_id',
+          data: hasLiked ? undefined : {
+            post_id: postId,
+            user_id: currentUser.id,
+          },
+        });
+      }
       
-      const likes = post.likes || [];
-      const hasLiked = likes.includes(currentUser.id);
+      // Update local state
+      const updatedFeed = feed.map(p => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          likes: hasLiked 
+            ? likes.filter(id => id !== currentUser.id)
+            : [...likes, currentUser.id],
+        };
+      });
       
-      return {
-        ...post,
-        likes: hasLiked 
-          ? likes.filter(id => id !== currentUser.id)
-          : [...likes, currentUser.id],
-      };
-    }));
-  }, [currentUser]);
+      setFeed(updatedFeed);
+      await storage.set('feed', updatedFeed);
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
+    }
+  }, [currentUser, feed]);
   
-  const addComment = useCallback((postId, content) => {
+  const addComment = useCallback(async (postId, content) => {
     const validationError = VALIDATIONS.comment(content);
     if (validationError) {
       showToast(validationError, 'error');
       return false;
     }
     
-    const newComment = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      content: sanitizeInput(content),
-      timestamp: Date.now(),
-    };
-    
-    setFeed(prev => prev.map(post => 
-      post.id === postId 
-        ? { ...post, comments: [...(post.comments || []), newComment] }
-        : post
-    ));
-    
-    return true;
-  }, [currentUser, showToast]);
+    try {
+      const sanitizedContent = sanitizeInput(content);
+      let newComment;
+      
+      // Insert into Supabase
+      if (navigator.onLine && !postId.startsWith('temp_') && !currentUser.id.startsWith('temp_')) {
+        const { data, error } = await supabase
+          .from('feed_comments')
+          .insert({
+            post_id: postId,
+            user_id: currentUser.id,
+            content: sanitizedContent,
+          })
+          .select(`
+            *,
+            user:users(name)
+          `)
+          .single();
+        
+        if (error) throw error;
+        
+        newComment = {
+          id: data.id,
+          userId: data.user_id,
+          userName: data.user?.name || currentUser.name,
+          content: data.content,
+          timestamp: new Date(data.created_at).getTime(),
+        };
+      } else {
+        // Offline: create with temporary ID
+        const tempId = `temp_${Date.now()}`;
+        newComment = {
+          id: tempId,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          content: sanitizedContent,
+          timestamp: Date.now(),
+        };
+        
+        // Queue for sync
+        if (!postId.startsWith('temp_') && !currentUser.id.startsWith('temp_')) {
+          await queueSyncOperation({
+            type: 'insert',
+            table: 'feed_comments',
+            data: {
+              post_id: postId,
+              user_id: currentUser.id,
+              content: sanitizedContent,
+            },
+          });
+        }
+      }
+      
+      const updatedFeed = feed.map(post => 
+        post.id === postId 
+          ? { ...post, comments: [...(post.comments || []), newComment] }
+          : post
+      );
+      
+      setFeed(updatedFeed);
+      await storage.set('feed', updatedFeed);
+      return true;
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+      showToast('Failed to add comment', 'error');
+      return false;
+    }
+  }, [currentUser, showToast, feed]);
   
   const editPost = useCallback((postId, newContent) => {
     const validationError = VALIDATIONS.postContent(newContent);
@@ -727,12 +1335,35 @@ export default function WindowDepotTracker() {
     return true;
   }, [showToast]);
   
-  const deletePost = useCallback((postId) => {
+  const deletePost = useCallback(async (postId) => {
     if (!window.confirm('Delete this post?')) return;
     
-    setFeed(prev => prev.filter(p => p.id !== postId));
-    showToast('Post deleted', 'success');
-  }, [showToast]);
+    try {
+      // Delete from Supabase (cascade will handle likes and comments)
+      if (navigator.onLine && !postId.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('feed_posts')
+          .delete()
+          .eq('id', postId);
+        
+        if (error) throw error;
+      } else if (!postId.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'delete',
+          table: 'feed_posts',
+          id: postId,
+        });
+      }
+      
+      setFeed(prev => prev.filter(p => p.id !== postId));
+      await storage.set('feed', feed.filter(p => p.id !== postId));
+      showToast('Post deleted', 'success');
+    } catch (error) {
+      console.error('Failed to delete post:', error);
+      showToast('Failed to delete post', 'error');
+    }
+  }, [showToast, feed]);
   
   // ========================================
   // CALCULATED DATA
