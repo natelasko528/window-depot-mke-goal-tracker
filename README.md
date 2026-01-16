@@ -78,7 +78,11 @@ All data is stored locally in the browser using IndexedDB. Data persists across 
 
 ## Deployment
 
-This app is configured for deployment on Vercel. The build output is in the `build` directory.
+This app is deployed on Vercel and is live at:
+- **Production URL**: https://window-depot-mke-goal-tracker.vercel.app
+- **GitHub Repository**: https://github.com/natelasko528/window-depot-mke-goal-tracker
+
+The app is configured for automatic deployments from the `master` branch. The build output is in the `build` directory.
 
 ## License
 

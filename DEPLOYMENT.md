@@ -1,40 +1,33 @@
 # Deployment Instructions
 
-## GitHub Repository Setup
+## Deployment Status
 
-Since GitHub CLI is not available, please create the repository manually:
+✅ **DEPLOYED AND LIVE**
 
-1. Go to https://github.com/new
-2. Repository name: `window-depot-goal-tracker`
-3. Choose Public or Private
-4. **DO NOT** initialize with README, .gitignore, or license (we already have these)
-5. Click "Create repository"
+- **Production URL**: https://window-depot-mke-goal-tracker.vercel.app
+- **GitHub Repository**: https://github.com/natelasko528/window-depot-mke-goal-tracker
+- **Vercel Project**: window-depot-mke-goal-tracker
+- **Status**: Production deployment successful
+- **Framework**: Create React App (auto-detected by Vercel)
 
-Then run these commands in the project directory:
+## GitHub Repository
 
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/window-depot-goal-tracker.git
-git push -u origin main
-```
-
-Replace `YOUR_USERNAME` with your GitHub username.
+Repository created and code pushed:
+- Repository: `window-depot-mke-goal-tracker`
+- Branch: `master`
+- All code successfully pushed
 
 ## Vercel Deployment
 
-After pushing to GitHub:
+Project connected to GitHub and deployed:
+- Automatic deployments enabled from `master` branch
+- Build configuration: `npm run build`
+- Output directory: `build`
+- Framework: Create React App (auto-detected)
 
-1. Go to https://vercel.com/new
-2. Import your GitHub repository
-3. Vercel will auto-detect Create React App settings
-4. Click "Deploy"
+## Future Deployments
 
-The app will be automatically deployed and you'll get a URL.
-
-Alternatively, you can use the Vercel CLI:
-```bash
-npm i -g vercel
-vercel
-```
+Any push to the `master` branch will automatically trigger a new deployment on Vercel.
 
 ## Local Testing
 
