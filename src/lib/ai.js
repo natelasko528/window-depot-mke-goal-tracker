@@ -1,12 +1,25 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
-const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+// Default API key from environment variable
+let API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
+let genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+
+// Current model configuration
+let currentModel = 'gemini-2.5-flash';
+
+// Available Gemini models for text chat
+export const TEXT_MODELS = [
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast and efficient for most tasks' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable for complex tasks' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Previous generation, stable' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Lightweight and fast' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Previous generation pro model' },
+];
 
 // Rate limiting (simple in-memory, consider Redis for production)
 let requestCount = 0;
 let resetTime = Date.now();
-const MAX_REQUESTS_PER_MINUTE = 15;
+let MAX_REQUESTS_PER_MINUTE = 15;
 
 const checkRateLimit = () => {
   const now = Date.now();
@@ -21,7 +34,7 @@ const checkRateLimit = () => {
 };
 
 // System prompt for the AI
-const SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app. 
+const SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app.
 Your role is to:
 - Provide motivation and coaching to help users reach their daily goals
 - Answer questions about the app features, goals, and performance
@@ -33,6 +46,50 @@ Users can track their daily progress toward goals and see weekly leaderboards.
 
 Be concise but helpful. Use emojis sparingly. Focus on actionable advice.`;
 
+/**
+ * Configure the AI module with custom settings
+ * @param {Object} settings - Configuration object
+ * @param {string} settings.apiKey - Gemini API key
+ * @param {string} settings.model - Model ID to use
+ * @param {number} settings.rateLimit - Max requests per minute
+ */
+export const configureAI = (settings = {}) => {
+  if (settings.apiKey !== undefined) {
+    API_KEY = settings.apiKey;
+    genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+  }
+
+  if (settings.model) {
+    currentModel = settings.model;
+  }
+
+  if (settings.rateLimit !== undefined && settings.rateLimit > 0) {
+    MAX_REQUESTS_PER_MINUTE = settings.rateLimit;
+  }
+
+  return {
+    isConfigured: isAIConfigured(),
+    model: currentModel,
+    rateLimit: MAX_REQUESTS_PER_MINUTE,
+  };
+};
+
+/**
+ * Get current AI configuration
+ */
+export const getAIConfig = () => ({
+  apiKey: API_KEY ? '********' + API_KEY.slice(-4) : '',
+  hasApiKey: !!API_KEY,
+  model: currentModel,
+  rateLimit: MAX_REQUESTS_PER_MINUTE,
+  isConfigured: isAIConfigured(),
+});
+
+/**
+ * Get the raw API key (use carefully)
+ */
+export const getAPIKey = () => API_KEY;
+
 // Check if AI is configured
 export const isAIConfigured = () => {
   return !!API_KEY && !!genAI;
@@ -41,14 +98,14 @@ export const isAIConfigured = () => {
 // Get AI response with context
 export const getAIResponse = async (message, context = {}) => {
   if (!isAIConfigured()) {
-    throw new Error('AI is not configured. Please add REACT_APP_GEMINI_API_KEY to your environment variables.');
+    throw new Error('AI is not configured. Please add your Gemini API key in Settings.');
   }
 
   checkRateLimit();
 
   try {
-    // Using gemini-2.5-flash for better stability and future compatibility
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Using the configured model
+    const model = genAI.getGenerativeModel({ model: currentModel });
 
     // Build context string
     let contextString = '';
@@ -81,7 +138,7 @@ export const getAIResponse = async (message, context = {}) => {
     }
 
     if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
-      throw new Error('Invalid API key. Please check your REACT_APP_GEMINI_API_KEY configuration.');
+      throw new Error('Invalid API key. Please check your API key in Settings.');
     }
 
     if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
@@ -93,7 +150,7 @@ export const getAIResponse = async (message, context = {}) => {
     }
 
     if (error.message?.includes('model not found') || error.message?.includes('NOT_FOUND')) {
-      throw new Error('AI model unavailable. Please contact support.');
+      throw new Error(`Model "${currentModel}" is not available. Try a different model in Settings.`);
     }
 
     // Generic fallback with original error context
@@ -109,3 +166,55 @@ export const getRemainingRequests = () => {
   }
   return Math.max(0, MAX_REQUESTS_PER_MINUTE - requestCount);
 };
+
+/**
+ * Validate an API key by making a test request
+ * @param {string} apiKey - The API key to validate
+ * @returns {Promise<{valid: boolean, error?: string}>}
+ */
+export const validateAPIKey = async (apiKey) => {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+    return { valid: false, error: 'Invalid API key format' };
+  }
+
+  try {
+    const testGenAI = new GoogleGenerativeAI(apiKey.trim());
+    const model = testGenAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    // Make a minimal test request
+    const result = await model.generateContent('Say "OK"');
+    const response = await result.response;
+    const text = response.text();
+
+    if (text) {
+      return { valid: true };
+    }
+
+    return { valid: false, error: 'No response received' };
+  } catch (error) {
+    console.error('API key validation failed:', error);
+
+    if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
+      return { valid: false, error: 'Invalid API key' };
+    }
+
+    if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      return { valid: false, error: 'API quota exceeded' };
+    }
+
+    return { valid: false, error: error.message || 'Validation failed' };
+  }
+};
+
+const aiModule = {
+  getAIResponse,
+  isAIConfigured,
+  getRemainingRequests,
+  configureAI,
+  getAIConfig,
+  getAPIKey,
+  validateAPIKey,
+  TEXT_MODELS,
+};
+
+export default aiModule;
