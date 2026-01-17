@@ -3203,6 +3203,275 @@ function ActiveUsersList({ activeUsers, currentUser }) {
 }
 
 // ========================================
+// CHATBOT COMPONENT
+// ========================================
+
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
+  const [messages, setMessages] = useState([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content: isAIConfigured() 
+        ? "Hi! I'm your AI coach. I can help you with your goals, answer questions about the app, and provide motivation. What would you like to know?"
+        : "AI chatbot is not configured. Please add REACT_APP_GEMINI_API_KEY to enable AI features.",
+      timestamp: Date.now(),
+    },
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [remainingRequests, setRemainingRequests] = useState(getRemainingRequests());
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    // Update remaining requests every second
+    const interval = setInterval(() => {
+      setRemainingRequests(getRemainingRequests());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading || !isAIConfigured()) return;
+
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input.trim(),
+      timestamp: Date.now(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const context = {
+        currentUser,
+        todayStats,
+        weekStats,
+        userGoals: currentUser?.goals,
+      };
+
+      const response = await getAIResponse(userMessage.content, context);
+      
+      const aiMessage = {
+        id: `ai-${Date.now()}`,
+        role: 'assistant',
+        content: response,
+        timestamp: Date.now(),
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+      setRemainingRequests(getRemainingRequests());
+    } catch (error) {
+      const errorMessage = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${error.message}`,
+        timestamp: Date.now(),
+        isError: true,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+          AI Coach
+        </h2>
+        {isAIConfigured() && (
+          <div style={{ fontSize: '12px', color: THEME.textLight }}>
+            {remainingRequests} requests/min remaining
+          </div>
+        )}
+      </div>
+
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 300px)',
+        minHeight: '500px',
+        maxHeight: '700px',
+      }}>
+        {/* Messages */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          marginBottom: '16px',
+          paddingRight: '8px',
+        }}>
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              style={{
+                display: 'flex',
+                gap: '12px',
+                marginBottom: '16px',
+                flexDirection: message.role === 'user' ? 'row-reverse' : 'row',
+              }}
+            >
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: message.role === 'user' ? THEME.primary : THEME.secondary,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                {message.role === 'user' ? (
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: THEME.white,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    color: THEME.primary,
+                  }}>
+                    {currentUser?.name?.[0]?.toUpperCase() || 'U'}
+                  </div>
+                ) : (
+                  <Bot size={18} color={THEME.primary} />
+                )}
+              </div>
+              <div style={{
+                flex: 1,
+                background: message.role === 'user' ? THEME.primary : THEME.secondary,
+                color: message.role === 'user' ? THEME.white : THEME.text,
+                padding: '12px 16px',
+                borderRadius: '12px',
+                maxWidth: '80%',
+                wordWrap: 'break-word',
+              }}>
+                <div style={{ fontSize: '14px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                  {message.content}
+                </div>
+                {message.isError && (
+                  <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '4px' }}>
+                    ⚠️ Error occurred
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: THEME.secondary,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Bot size={18} color={THEME.primary} />
+              </div>
+              <div style={{
+                background: THEME.secondary,
+                padding: '12px 16px',
+                borderRadius: '12px',
+              }}>
+                <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                  Thinking...
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
+            disabled={isLoading || !isAIConfigured()}
+            maxLength={500}
+            rows={2}
+            style={{
+              flex: 1,
+              padding: '12px',
+              border: `2px solid ${THEME.border}`,
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+              minHeight: '50px',
+              maxHeight: '120px',
+            }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading || !isAIConfigured()}
+            style={{
+              padding: '12px 20px',
+              background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
+              border: 'none',
+              borderRadius: '8px',
+              color: THEME.white,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              height: 'fit-content',
+            }}
+          >
+            <Send size={18} />
+          </button>
+        </div>
+        {!isAIConfigured() && (
+          <div style={{
+            marginTop: '8px',
+            padding: '8px',
+            background: THEME.warning,
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: THEME.text,
+          }}>
+            ⚠️ Add REACT_APP_GEMINI_API_KEY to enable AI features
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
 // TEAM VIEW COMPONENT (Manager Only)
 // ========================================
 
