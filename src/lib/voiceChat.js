@@ -1,335 +1,501 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+/**
+ * Voice Chat Library for Gemini Live API
+ * Provides real-time voice conversation with AI using WebSockets
+ */
 
-// Audio configuration matching Gemini Live API requirements
-const SEND_SAMPLE_RATE = 16000; // 16kHz input
-const RECEIVE_SAMPLE_RATE = 24000; // 24kHz output
-const CHANNELS = 1; // Mono
-const BIT_DEPTH = 16;
-
-let liveSession = null;
+// Voice chat state
 let audioContext = null;
 let mediaStream = null;
-let audioWorkletNode = null;
-let audioSource = null;
+let mediaRecorder = null;
+let webSocket = null;
 let audioQueue = [];
-let isRecording = false;
 let isPlaying = false;
+let currentModel = 'gemini-2.5-flash-native-audio-preview-12-2025'; // Native audio model for Live API
+
+// Audio format constants (per Gemini Live API spec)
+// eslint-disable-next-line no-unused-vars
+const SEND_SAMPLE_RATE = 16000; // 16kHz for input
+// eslint-disable-next-line no-unused-vars
+const RECEIVE_SAMPLE_RATE = 24000; // 24kHz for output
+
+// Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
+// The models that support bidiGenerateContent will be listed there
+
+// Voice options for Gemini Live
+export const VOICE_OPTIONS = [
+  { id: 'Puck', name: 'Puck', description: 'Friendly and approachable' },
+  { id: 'Charon', name: 'Charon', description: 'Calm and professional' },
+  { id: 'Kore', name: 'Kore', description: 'Warm and supportive' },
+  { id: 'Fenrir', name: 'Fenrir', description: 'Confident and energetic' },
+  { id: 'Aoede', name: 'Aoede', description: 'Clear and articulate' },
+];
+
+// System instruction for voice coaching
+const VOICE_SYSTEM_INSTRUCTION = `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
+Your role is to:
+- Provide motivation and coaching through natural conversation
+- Help with role-playing exercises for sales calls and customer interactions
+- Give feedback on communication skills
+- Answer questions about goals and performance
+- Be encouraging, professional, and supportive
+
+Keep responses conversational and concise for voice interaction.
+Speak naturally as if having a real conversation.`;
 
 /**
- * Initialize voice chat with Gemini Live API
- * @param {string} apiKey - Gemini API key
- * @param {string} model - Model name (default: gemini-2.5-flash-native-audio-preview-12-2025)
- * @param {Object} config - Additional configuration
- * @returns {Promise<Object>} Session object
+ * Initialize audio context for playback
  */
-export const initializeVoiceChat = async (apiKey, model = 'gemini-2.5-flash-native-audio-preview-12-2025', config = {}) => {
+const initAudioContext = () => {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 24000, // Gemini Live uses 24kHz
+    });
+  }
+  return audioContext;
+};
+
+/**
+ * Convert base64 to ArrayBuffer
+ */
+const base64ToArrayBuffer = (base64) => {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+};
+
+// Note: arrayBufferToBase64 would be used for sending raw PCM audio
+// Currently audio is sent as base64-encoded webm chunks via MediaRecorder
+
+/**
+ * Play audio from PCM data
+ */
+const playAudio = async (pcmData) => {
+  const ctx = initAudioContext();
+
+  // Resume if suspended
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
+
+  // Convert PCM to AudioBuffer (16-bit PCM, 24kHz, mono)
+  const samples = new Int16Array(pcmData);
+  const floatSamples = new Float32Array(samples.length);
+
+  for (let i = 0; i < samples.length; i++) {
+    floatSamples[i] = samples[i] / 32768;
+  }
+
+  const audioBuffer = ctx.createBuffer(1, floatSamples.length, 24000);
+  audioBuffer.copyToChannel(floatSamples, 0);
+
+  const source = ctx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(ctx.destination);
+
+  return new Promise((resolve) => {
+    source.onended = resolve;
+    source.start();
+  });
+};
+
+/**
+ * Process audio queue for playback
+ */
+const processAudioQueue = async () => {
+  if (isPlaying || audioQueue.length === 0) return;
+
+  isPlaying = true;
+
+  while (audioQueue.length > 0) {
+    const audioData = audioQueue.shift();
+    try {
+      await playAudio(audioData);
+    } catch (error) {
+      console.error('Error playing audio:', error);
+    }
+  }
+
+  isPlaying = false;
+};
+
+/**
+ * Voice chat session class
+ */
+class VoiceChatSession {
+  constructor(apiKey, options = {}) {
+    this.apiKey = apiKey;
+    this.model = options.model || currentModel;
+    this.voice = options.voice || 'Puck';
+    this.systemInstruction = options.systemInstruction || VOICE_SYSTEM_INSTRUCTION;
+    this.onStatusChange = options.onStatusChange || (() => {});
+    this.onTranscript = options.onTranscript || (() => {});
+    this.onError = options.onError || (() => {});
+    this.onAudioLevel = options.onAudioLevel || (() => {});
+    this.isConnected = false;
+    this.isListening = false;
+    this.analyser = null;
+    this.audioLevelInterval = null;
+  }
+
+  /**
+   * Connect to Gemini Live WebSocket
+   */
+  async connect() {
+    return new Promise((resolve, reject) => {
+      try {
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
+
+        webSocket = new WebSocket(wsUrl);
+
+        webSocket.onopen = () => {
+          console.log('WebSocket connected');
+          this.isConnected = true;
+          this.onStatusChange('connected');
+
+          // Send setup message
+          const setupMessage = {
+            setup: {
+              model: `models/${this.model}`,
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: this.voice,
+                    },
+                  },
+                },
+              },
+              systemInstruction: {
+                parts: [{ text: this.systemInstruction }],
+              },
+            },
+          };
+
+          webSocket.send(JSON.stringify(setupMessage));
+          resolve();
+        };
+
+        webSocket.onmessage = (event) => {
+          try {
+            const response = JSON.parse(event.data);
+            this.handleResponse(response);
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+
+        webSocket.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          this.onError('Connection error. Please check your API key and try again.');
+          reject(error);
+        };
+
+        webSocket.onclose = (event) => {
+          console.log('WebSocket closed:', event.code, event.reason);
+          this.isConnected = false;
+          this.onStatusChange('disconnected');
+
+          if (event.code !== 1000) {
+            this.onError(`Connection closed: ${event.reason || 'Unknown reason'}`);
+          }
+        };
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Handle incoming WebSocket responses
+   */
+  handleResponse(response) {
+    // Handle setup complete
+    if (response.setupComplete) {
+      this.onStatusChange('ready');
+      return;
+    }
+
+    // Handle server content (audio response)
+    if (response.serverContent) {
+      const content = response.serverContent;
+
+      // Check for model turn
+      if (content.modelTurn) {
+        const parts = content.modelTurn.parts || [];
+
+        for (const part of parts) {
+          // Handle audio data
+          if (part.inlineData && part.inlineData.mimeType === 'audio/pcm') {
+            const audioData = base64ToArrayBuffer(part.inlineData.data);
+            audioQueue.push(audioData);
+            processAudioQueue();
+          }
+
+          // Handle text transcript
+          if (part.text) {
+            this.onTranscript(part.text, 'assistant');
+          }
+        }
+      }
+
+      // Check if turn is complete
+      if (content.turnComplete) {
+        this.onStatusChange('ready');
+      }
+    }
+
+    // Handle tool calls (future expansion)
+    if (response.toolCall) {
+      console.log('Tool call received:', response.toolCall);
+    }
+  }
+
+  /**
+   * Start listening to microphone
+   */
+  async startListening() {
+    if (!this.isConnected) {
+      throw new Error('Not connected to voice chat');
+    }
+
+    try {
+      // Get microphone access
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+
+      // Create audio context for analysis
+      const ctx = initAudioContext();
+      const source = ctx.createMediaStreamSource(mediaStream);
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 256;
+      source.connect(this.analyser);
+
+      // Start audio level monitoring
+      this.startAudioLevelMonitoring();
+
+      // Create MediaRecorder for capturing audio
+      const options = { mimeType: 'audio/webm;codecs=opus' };
+
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        // Fallback for browsers that don't support opus
+        mediaRecorder = new MediaRecorder(mediaStream);
+      } else {
+        mediaRecorder = new MediaRecorder(mediaStream, options);
+      }
+
+      // Handle audio data chunks
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0 && this.isListening && this.isConnected) {
+          // Convert blob to base64 and send
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
+            this.sendAudio(base64);
+          };
+          reader.readAsDataURL(event.data);
+        }
+      };
+
+      // Start recording in chunks
+      mediaRecorder.start(250); // Send audio every 250ms
+      this.isListening = true;
+      this.onStatusChange('listening');
+
+    } catch (error) {
+      console.error('Error starting microphone:', error);
+      if (error.name === 'NotAllowedError') {
+        this.onError('Microphone access denied. Please allow microphone access to use voice chat.');
+      } else {
+        this.onError(`Microphone error: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Monitor audio levels for visual feedback
+   */
+  startAudioLevelMonitoring() {
+    if (!this.analyser) return;
+
+    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+
+    this.audioLevelInterval = setInterval(() => {
+      this.analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const normalizedLevel = Math.min(average / 128, 1);
+      this.onAudioLevel(normalizedLevel);
+    }, 50);
+  }
+
+  /**
+   * Stop audio level monitoring
+   */
+  stopAudioLevelMonitoring() {
+    if (this.audioLevelInterval) {
+      clearInterval(this.audioLevelInterval);
+      this.audioLevelInterval = null;
+    }
+    this.onAudioLevel(0);
+  }
+
+  /**
+   * Send audio data to the server
+   */
+  sendAudio(base64Audio) {
+    if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const message = {
+      realtimeInput: {
+        mediaChunks: [
+          {
+            mimeType: 'audio/webm;codecs=opus',
+            data: base64Audio,
+          },
+        ],
+      },
+    };
+
+    webSocket.send(JSON.stringify(message));
+  }
+
+  /**
+   * Send text message
+   */
+  sendText(text) {
+    if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected');
+    }
+
+    this.onTranscript(text, 'user');
+    this.onStatusChange('processing');
+
+    const message = {
+      clientContent: {
+        turns: [
+          {
+            role: 'user',
+            parts: [{ text }],
+          },
+        ],
+        turnComplete: true,
+      },
+    };
+
+    webSocket.send(JSON.stringify(message));
+  }
+
+  /**
+   * Stop listening
+   */
+  stopListening() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+
+    this.stopAudioLevelMonitoring();
+    this.isListening = false;
+
+    if (this.isConnected) {
+      this.onStatusChange('ready');
+    }
+  }
+
+  /**
+   * Disconnect from voice chat
+   */
+  disconnect() {
+    this.stopListening();
+
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null;
+    }
+
+    if (webSocket) {
+      webSocket.close(1000, 'User disconnected');
+      webSocket = null;
+    }
+
+    audioQueue = [];
+    isPlaying = false;
+    this.isConnected = false;
+    this.onStatusChange('disconnected');
+  }
+
+  /**
+   * Interrupt AI speech
+   */
+  interrupt() {
+    // Clear audio queue
+    audioQueue = [];
+
+    // Send interrupt signal if needed
+    if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+      // The API handles interruption automatically when new input is received
+      console.log('Interrupt requested');
+    }
+  }
+}
+
+/**
+ * Check if voice chat is supported in this browser
+ */
+export const isVoiceChatSupported = () => {
+  return !!(
+    navigator.mediaDevices &&
+    navigator.mediaDevices.getUserMedia &&
+    window.WebSocket &&
+    (window.AudioContext || window.webkitAudioContext) &&
+    window.MediaRecorder
+  );
+};
+
+/**
+ * Create a new voice chat session
+ */
+export const createVoiceChatSession = (apiKey, options = {}) => {
+  if (!isVoiceChatSupported()) {
+    throw new Error('Voice chat is not supported in this browser');
+  }
+
   if (!apiKey) {
     throw new Error('API key is required for voice chat');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-
-  const liveConfig = {
-    responseModalities: [Modality.AUDIO],
-    systemInstruction: config.systemInstruction || "You are a helpful and friendly AI assistant.",
-    ...config
-  };
-
-  try {
-    // Create AudioContext for audio processing
-    audioContext = new (window.AudioContext || window.webkitAudioContext)({
-      sampleRate: SEND_SAMPLE_RATE
-    });
-
-    liveSession = await ai.live.connect({
-      model: model,
-      config: liveConfig,
-      callbacks: {
-        onopen: () => {
-          console.log('✅ Voice chat WebSocket connected');
-          if (config.onOpen) config.onOpen();
-        },
-        onmessage: async (message) => {
-          try {
-            // Handle different message types - message can be a Blob, string, or object
-            let messageData = message;
-            
-            // If message is a Blob, convert to text first
-            if (message instanceof Blob) {
-              const text = await message.text();
-              try {
-                messageData = JSON.parse(text);
-              } catch (e) {
-                // If not JSON, treat as raw audio data
-                await handleAudioResponse(message);
-                return;
-              }
-            } else if (typeof message === 'string') {
-              try {
-                messageData = JSON.parse(message);
-              } catch (e) {
-                // Not JSON, might be base64 audio
-                await handleAudioResponse(message);
-                return;
-              }
-            }
-
-            // Process structured message data
-            if (messageData.serverContent) {
-              // Handle interruptions
-              if (messageData.serverContent.interrupted) {
-                // Clear audio queue on interruption
-                audioQueue = [];
-                if (config.onInterrupted) config.onInterrupted();
-                return;
-              }
-
-              // Handle model turn with audio parts
-              if (messageData.serverContent.modelTurn && messageData.serverContent.modelTurn.parts) {
-                for (const part of messageData.serverContent.modelTurn.parts) {
-                  if (part.inlineData && part.inlineData.data) {
-                    // Audio data - decode and queue for playback
-                    await handleAudioResponse(part.inlineData.data);
-                  } else if (part.text) {
-                    // Text transcript (if available)
-                    if (config.onTranscript) config.onTranscript(part.text);
-                  }
-                }
-              }
-            }
-
-            if (config.onMessage) config.onMessage(messageData);
-          } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
-            console.error('Message type:', typeof message, 'Instance:', message instanceof Blob ? 'Blob' : 'Other');
-            if (config.onError) config.onError(error);
-          }
-        },
-        onerror: (error) => {
-          console.error('Voice chat WebSocket error:', error);
-          if (config.onError) config.onError(error);
-        },
-        onclose: (event) => {
-          console.log('Voice chat WebSocket closed:', event.reason);
-          if (config.onClose) config.onClose(event);
-        }
-      }
-    });
-
-    return liveSession;
-  } catch (error) {
-    console.error('Failed to initialize voice chat:', error);
-    throw error;
-  }
+  return new VoiceChatSession(apiKey, options);
 };
 
 /**
- * Handle audio response from Gemini Live API
- * @param {string|Blob|ArrayBuffer} audioData - Audio data (base64 string, Blob, or ArrayBuffer)
+ * Set the default model for voice chat
  */
-const handleAudioResponse = async (audioData) => {
-  try {
-    let audioBuffer;
-    
-    // Convert different input types to ArrayBuffer
-    if (typeof audioData === 'string') {
-      // Base64 string - decode to ArrayBuffer
-      const binaryString = atob(audioData);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      audioBuffer = bytes.buffer;
-    } else if (audioData instanceof Blob) {
-      audioBuffer = await audioData.arrayBuffer();
-    } else if (audioData instanceof ArrayBuffer) {
-      audioBuffer = audioData;
-    } else {
-      console.warn('Unknown audio data type:', typeof audioData);
-      return;
-    }
-
-    // Queue audio for playback
-    audioQueue.push(audioBuffer);
-    
-    // Start playback if not already playing
-    if (!isPlaying) {
-      playAudioQueue();
-    }
-  } catch (error) {
-    console.error('Error handling audio response:', error);
-  }
+export const setVoiceChatModel = (modelId) => {
+  currentModel = modelId;
 };
 
 /**
- * Play audio from the queue
+ * Get the current voice chat model
  */
-const playAudioQueue = async () => {
-  if (isPlaying || audioQueue.length === 0) return;
-  
-  isPlaying = true;
-  
-  try {
-    while (audioQueue.length > 0) {
-      const audioBuffer = audioQueue.shift();
-      
-      // Create AudioBuffer for playback
-      const audioBufferSource = audioContext.createBufferSource();
-      const decodedAudio = await audioContext.decodeAudioData(audioBuffer.slice(0)); // Clone buffer
-      
-      audioBufferSource.buffer = decodedAudio;
-      audioBufferSource.connect(audioContext.destination);
-      
-      await new Promise((resolve, reject) => {
-        audioBufferSource.onended = resolve;
-        audioBufferSource.onerror = reject;
-        audioBufferSource.start(0);
-      });
-    }
-  } catch (error) {
-    console.error('Error playing audio:', error);
-  } finally {
-    isPlaying = false;
-  }
+export const getVoiceChatModel = () => currentModel;
+
+const voiceChatModule = {
+  createVoiceChatSession,
+  isVoiceChatSupported,
+  setVoiceChatModel,
+  getVoiceChatModel,
+  VOICE_OPTIONS,
 };
 
-/**
- * Start recording from microphone
- * @returns {Promise<void>}
- */
-export const startRecording = async () => {
-  if (isRecording) {
-    console.warn('Recording already in progress');
-    return;
-  }
-
-  if (!liveSession) {
-    throw new Error('Voice chat session not initialized. Call initializeVoiceChat first.');
-  }
-
-  try {
-    // Request microphone access
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        sampleRate: SEND_SAMPLE_RATE,
-        channelCount: CHANNELS,
-        echoCancellation: true,
-        noiseSuppression: true,
-      }
-    });
-
-    // Create audio source from microphone
-    audioSource = audioContext.createMediaStreamSource(mediaStream);
-
-    // Create ScriptProcessorNode for PCM conversion (fallback for older browsers)
-    // For modern browsers, we should use AudioWorklet, but ScriptProcessorNode is more compatible
-    const bufferSize = 4096;
-    const processor = audioContext.createScriptProcessor(bufferSize, CHANNELS, CHANNELS);
-
-    processor.onaudioprocess = (event) => {
-      if (!isRecording || !liveSession) return;
-
-      const inputBuffer = event.inputBuffer;
-      const inputData = inputBuffer.getChannelData(0); // Mono channel
-
-      // Convert Float32Array to 16-bit PCM
-      const pcm16 = new Int16Array(inputData.length);
-      for (let i = 0; i < inputData.length; i++) {
-        // Clamp to [-1, 1] and convert to 16-bit integer
-        const s = Math.max(-1, Math.min(1, inputData[i]));
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
-
-      // Convert to base64 for transmission
-      const base64 = btoa(
-        String.fromCharCode.apply(null, new Uint8Array(pcm16.buffer))
-      );
-
-      // Send to Gemini Live API
-      try {
-        liveSession.sendRealtimeInput({
-          audio: {
-            data: base64,
-            mimeType: `audio/pcm;rate=${SEND_SAMPLE_RATE}`
-          }
-        });
-      } catch (error) {
-        console.error('Error sending audio chunk:', error);
-      }
-    };
-
-    // Connect processor to audio source
-    audioSource.connect(processor);
-    processor.connect(audioContext.destination); // Need to connect to destination for ScriptProcessorNode to work
-
-    isRecording = true;
-    console.log('✅ Recording started');
-  } catch (error) {
-    console.error('Failed to start recording:', error);
-    throw error;
-  }
-};
-
-/**
- * Stop recording from microphone
- */
-export const stopRecording = () => {
-  if (!isRecording) return;
-
-  isRecording = false;
-
-  // Stop media stream tracks
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop());
-    mediaStream = null;
-  }
-
-  // Disconnect audio nodes
-  if (audioSource) {
-    audioSource.disconnect();
-    audioSource = null;
-  }
-
-  console.log('✅ Recording stopped');
-};
-
-/**
- * Close voice chat session
- */
-export const closeVoiceChat = async () => {
-  stopRecording();
-
-  // Clear audio queue
-  audioQueue = [];
-  isPlaying = false;
-
-  // Close WebSocket connection
-  if (liveSession) {
-    try {
-      liveSession.close();
-    } catch (error) {
-      console.error('Error closing voice chat session:', error);
-    }
-    liveSession = null;
-  }
-
-  // Close AudioContext
-  if (audioContext && audioContext.state !== 'closed') {
-    await audioContext.close();
-    audioContext = null;
-  }
-
-  console.log('✅ Voice chat closed');
-};
-
-/**
- * Check if recording is active
- * @returns {boolean}
- */
-export const isRecordingActive = () => isRecording;
-
-/**
- * Check if voice chat session is initialized
- * @returns {boolean}
- */
-export const isVoiceChatInitialized = () => liveSession !== null;
+export default voiceChatModule;

@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+<<<<<<< HEAD
 import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Clock, ChevronDown, Mic } from 'lucide-react';
+=======
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff } from 'lucide-react';
+>>>>>>> origin/master
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -20,6 +24,7 @@ import {
   getAIResponse,
   isAIConfigured,
   getRemainingRequests,
+<<<<<<< HEAD
   AVAILABLE_MODELS,
   DEFAULT_MODEL
 } from './lib/ai';
@@ -30,6 +35,20 @@ import {
   closeVoiceChat,
   isRecordingActive,
   isVoiceChatInitialized
+=======
+  configureAI,
+  getAPIKey,
+  validateAPIKey,
+  fetchAvailableModels,
+  clearModelsCache,
+  TEXT_MODELS,
+  LIVE_MODELS_FALLBACK
+} from './lib/ai';
+import {
+  createVoiceChatSession,
+  isVoiceChatSupported,
+  VOICE_OPTIONS
+>>>>>>> origin/master
 } from './lib/voiceChat';
 
 // ========================================
@@ -252,6 +271,24 @@ export default function WindowDepotTracker() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [rememberUser, setRememberUser] = useState(false);
   const [activeUsers, setActiveUsers] = useState([]);
+  const [appSettings, setAppSettings] = useState({
+    ai: {
+      apiKey: '',
+      textModel: 'gemini-2.0-flash',
+      voiceModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      voiceName: 'Puck',
+      rateLimit: 15,
+      voiceChatEnabled: true,
+    },
+    appearance: {
+      compactMode: false,
+      showAnimations: true,
+    },
+    notifications: {
+      goalReminders: true,
+      achievementAlerts: true,
+    },
+  });
   
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
@@ -292,6 +329,7 @@ export default function WindowDepotTracker() {
           storage.get('feed', []),
           storage.get('currentUser', null),
           storage.get('rememberUser', false),
+          storage.get('appSettings', null),
         ];
         
         const timeout = new Promise((_, reject) => 
@@ -303,8 +341,8 @@ export default function WindowDepotTracker() {
           timeout
         ]);
         
-        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember] = results;
-        
+        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings] = results;
+
         // Use synced data if available, otherwise use local
         const finalUsers = syncedData?.users || loadedUsers || [];
         setUsers(finalUsers);
@@ -312,6 +350,19 @@ export default function WindowDepotTracker() {
         setAppointments(syncedData?.appointments || loadedAppts || []);
         setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
+
+        // Load and apply settings
+        if (savedSettings) {
+          setAppSettings(prev => ({ ...prev, ...savedSettings }));
+          // Configure AI with saved settings
+          if (savedSettings.ai?.apiKey) {
+            configureAI({
+              apiKey: savedSettings.ai.apiKey,
+              model: savedSettings.ai.textModel || 'gemini-2.5-flash',
+              rateLimit: savedSettings.ai.rateLimit || 15,
+            });
+          }
+        }
         
         // Restore current user from synced users if remembered
         if (shouldRemember && savedUser) {
@@ -926,9 +977,37 @@ export default function WindowDepotTracker() {
   }, [showToast, users]);
   
   // ========================================
+  // SETTINGS FUNCTIONS
+  // ========================================
+
+  const saveSettings = useCallback(async (newSettings) => {
+    try {
+      const updatedSettings = { ...appSettings, ...newSettings };
+      setAppSettings(updatedSettings);
+      await storage.set('appSettings', updatedSettings);
+
+      // Apply AI settings immediately
+      if (newSettings.ai) {
+        configureAI({
+          apiKey: newSettings.ai.apiKey ?? updatedSettings.ai.apiKey,
+          model: newSettings.ai.textModel ?? updatedSettings.ai.textModel,
+          rateLimit: newSettings.ai.rateLimit ?? updatedSettings.ai.rateLimit,
+        });
+      }
+
+      showToast('Settings saved', 'success');
+      return true;
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      showToast('Failed to save settings', 'error');
+      return false;
+    }
+  }, [appSettings, showToast]);
+
+  // ========================================
   // TRACKING FUNCTIONS
   // ========================================
-  
+
   const handleIncrement = useCallback(async (category) => {
     if (!currentUser) return;
     
@@ -1933,6 +2012,14 @@ export default function WindowDepotTracker() {
             todayStats={todayStats}
             weekStats={weekStats}
             onIncrement={handleIncrement}
+            appSettings={appSettings}
+          />
+        )}
+
+        {activeView === 'settings' && (
+          <SettingsPage
+            settings={appSettings}
+            onSaveSettings={saveSettings}
           />
         )}
       </div>
@@ -3252,17 +3339,17 @@ function ActiveUsersList({ activeUsers, currentUser }) {
 }
 
 // ========================================
-// CHATBOT COMPONENT
+// CHATBOT COMPONENT WITH VOICE CHAT
 // ========================================
 
-function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings }) {
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
       role: 'assistant',
-      content: isAIConfigured() 
+      content: isAIConfigured()
         ? "Hi! I'm your AI coach. I can help you with your goals, answer questions about the app, and provide motivation. What would you like to know?"
-        : "AI chatbot is not configured. Please add REACT_APP_GEMINI_API_KEY to enable AI features.",
+        : "AI chatbot is not configured. Please add your API key in Settings to enable AI features.",
       timestamp: Date.now(),
     },
   ]);
@@ -3273,9 +3360,13 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [chatSessions, setChatSessions] = useState([]);
   const [chatMode, setChatMode] = useState('text'); // 'text' or 'voice'
+  const [voiceStatus, setVoiceStatus] = useState('disconnected'); // 'disconnected', 'connecting', 'connected', 'ready', 'listening', 'processing'
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [voiceError, setVoiceError] = useState(null);
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const messagesEndRef = useRef(null);
   const saveDebounceRef = useRef(null);
+  const voiceSessionRef = useRef(null);
 
   // Load saved model preference
   useEffect(() => {
@@ -3463,6 +3554,15 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Cleanup voice session on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceSessionRef.current) {
+        voiceSessionRef.current.disconnect();
+      }
+    };
+  }, []);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || !isAIConfigured()) return;
 
@@ -3485,8 +3585,13 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         userGoals: currentUser?.goals,
       };
 
+<<<<<<< HEAD
       const response = await getAIResponse(userMessage.content, context, selectedModel);
       
+=======
+      const response = await getAIResponse(userMessage.content, context);
+
+>>>>>>> origin/master
       const aiMessage = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
@@ -3517,6 +3622,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
     }
   };
 
+<<<<<<< HEAD
   // Load a specific chat session
   const loadSession = async (sessionId) => {
     if (!currentUser || !sessionId) return;
@@ -3612,10 +3718,91 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
       } catch (error) {
         console.error('Failed to start recording:', error);
         alert('Failed to start recording: ' + error.message);
+=======
+  // Voice chat handlers
+  const handleStartVoiceChat = async () => {
+    if (!isAIConfigured()) {
+      setVoiceError('Please configure your API key in Settings first.');
+      return;
+    }
+
+    if (!isVoiceChatSupported()) {
+      setVoiceError('Voice chat is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+      setVoiceError('API key not found. Please configure it in Settings.');
+      return;
+    }
+
+    setVoiceError(null);
+    setVoiceStatus('connecting');
+
+    try {
+      const session = createVoiceChatSession(apiKey, {
+        model: appSettings?.ai?.voiceModel || 'gemini-2.5-flash-native-audio-preview-12-2025',
+        voice: appSettings?.ai?.voiceName || 'Puck',
+        systemInstruction: `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
+The current user is ${currentUser?.name || 'User'} (${currentUser?.role || 'employee'}).
+Today's stats: Reviews: ${todayStats?.reviews || 0}, Demos: ${todayStats?.demos || 0}, Callbacks: ${todayStats?.callbacks || 0}.
+Goals: Reviews: ${currentUser?.goals?.reviews || 0}, Demos: ${currentUser?.goals?.demos || 0}, Callbacks: ${currentUser?.goals?.callbacks || 0}.
+
+Your role is to:
+- Provide motivation and coaching through natural conversation
+- Help with role-playing exercises for sales calls and customer interactions
+- Give feedback on communication skills
+- Be encouraging, professional, and supportive
+Keep responses conversational and concise for voice interaction.`,
+        onStatusChange: (status) => {
+          setVoiceStatus(status);
+        },
+        onTranscript: (text, role) => {
+          const newMessage = {
+            id: `${role}-${Date.now()}`,
+            role: role === 'assistant' ? 'assistant' : 'user',
+            content: text,
+            timestamp: Date.now(),
+            isVoice: true,
+          };
+          setMessages(prev => [...prev, newMessage]);
+        },
+        onError: (error) => {
+          setVoiceError(error);
+          setVoiceStatus('disconnected');
+        },
+        onAudioLevel: (level) => {
+          setAudioLevel(level);
+        },
+      });
+
+      voiceSessionRef.current = session;
+      await session.connect();
+      setChatMode('voice');
+    } catch (error) {
+      console.error('Failed to start voice chat:', error);
+      setVoiceError(error.message || 'Failed to connect to voice chat');
+      setVoiceStatus('disconnected');
+    }
+  };
+
+  const handleToggleListening = async () => {
+    if (!voiceSessionRef.current) return;
+
+    if (voiceStatus === 'listening') {
+      voiceSessionRef.current.stopListening();
+    } else if (voiceStatus === 'ready' || voiceStatus === 'connected') {
+      try {
+        await voiceSessionRef.current.startListening();
+      } catch (error) {
+        setVoiceError(error.message);
+>>>>>>> origin/master
       }
     }
   };
 
+<<<<<<< HEAD
   // Cleanup voice chat on unmount
   useEffect(() => {
     return () => {
@@ -3624,6 +3811,39 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
       }
     };
   }, []);
+=======
+  const handleEndVoiceChat = () => {
+    if (voiceSessionRef.current) {
+      voiceSessionRef.current.disconnect();
+      voiceSessionRef.current = null;
+    }
+    setVoiceStatus('disconnected');
+    setChatMode('text');
+    setAudioLevel(0);
+  };
+
+  const voiceChatEnabled = appSettings?.ai?.voiceChatEnabled !== false && isVoiceChatSupported();
+
+  const getStatusText = () => {
+    switch (voiceStatus) {
+      case 'connecting': return 'Connecting...';
+      case 'connected': return 'Connected, setting up...';
+      case 'ready': return 'Ready - Tap microphone to speak';
+      case 'listening': return 'Listening...';
+      case 'processing': return 'AI is responding...';
+      default: return '';
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (voiceStatus) {
+      case 'listening': return THEME.success;
+      case 'processing': return THEME.warning;
+      case 'ready': return THEME.primary;
+      default: return THEME.textLight;
+    }
+  };
+>>>>>>> origin/master
 
   return (
     <div>
@@ -3631,6 +3851,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
           AI Coach
         </h2>
+<<<<<<< HEAD
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           {isAIConfigured() && (
             <>
@@ -3720,7 +3941,103 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
           <Mic size={20} />
           Voice Chat
         </button>
+=======
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {isAIConfigured() && chatMode === 'text' && (
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              {remainingRequests} requests/min
+            </div>
+          )}
+          {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
+            <div style={{ fontSize: '12px', color: getStatusColor(), fontWeight: '600' }}>
+              {getStatusText()}
+            </div>
+          )}
+        </div>
+>>>>>>> origin/master
       </div>
+
+      {/* Mode Toggle */}
+      {voiceChatEnabled && isAIConfigured() && (
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '16px',
+        }}>
+          <button
+            onClick={() => chatMode === 'voice' ? handleEndVoiceChat() : setChatMode('text')}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              background: chatMode === 'text' ? THEME.primary : THEME.secondary,
+              color: chatMode === 'text' ? THEME.white : THEME.text,
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <MessageSquare size={16} />
+            Text Chat
+          </button>
+          <button
+            onClick={() => chatMode === 'text' ? handleStartVoiceChat() : null}
+            disabled={voiceStatus === 'connecting'}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              background: chatMode === 'voice' ? THEME.primary : THEME.secondary,
+              color: chatMode === 'voice' ? THEME.white : THEME.text,
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: voiceStatus === 'connecting' ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <Mic size={16} />
+            Voice Chat
+          </button>
+        </div>
+      )}
+
+      {voiceError && (
+        <div style={{
+          marginBottom: '16px',
+          padding: '12px',
+          background: '#F8D7DA',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#721C24',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <X size={16} />
+          {voiceError}
+          <button
+            onClick={() => setVoiceError(null)}
+            style={{
+              marginLeft: 'auto',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px',
+            }}
+          >
+            <X size={14} color="#721C24" />
+          </button>
+        </div>
+      )}
 
       <div style={{
         background: THEME.white,
@@ -3729,9 +4046,9 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 300px)',
-        minHeight: '500px',
-        maxHeight: '700px',
+        height: 'calc(100vh - 340px)',
+        minHeight: '450px',
+        maxHeight: '650px',
       }}>
         {/* Chat History Dropdown */}
         {currentUser && chatSessions.length > 0 && (
@@ -3845,12 +4162,18 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
                 maxWidth: '80%',
                 wordWrap: 'break-word',
               }}>
+                {message.isVoice && (
+                  <div style={{ fontSize: '10px', opacity: 0.7, marginBottom: '4px' }}>
+                    <Mic size={10} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                    Voice
+                  </div>
+                )}
                 <div style={{ fontSize: '14px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
                   {message.content}
                 </div>
                 {message.isError && (
                   <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '4px' }}>
-                    ⚠️ Error occurred
+                    Error occurred
                   </div>
                 )}
               </div>
@@ -3884,6 +4207,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
           <div ref={messagesEndRef} />
         </div>
 
+<<<<<<< HEAD
         {/* Input - Text Chat Mode */}
         {chatMode === 'text' && (
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -3969,18 +4293,183 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
           </div>
         )}
         {!isAIConfigured() && (
+=======
+        {/* Voice Chat Controls */}
+        {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
+>>>>>>> origin/master
           <div style={{
-            marginTop: '8px',
-            padding: '8px',
-            background: THEME.warning,
-            borderRadius: '6px',
-            fontSize: '12px',
-            color: THEME.text,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '16px',
+            padding: '20px',
           }}>
-            ⚠️ Add REACT_APP_GEMINI_API_KEY to enable AI features
+            {/* Audio Level Indicator */}
+            <div style={{
+              width: '100%',
+              height: '4px',
+              background: THEME.secondary,
+              borderRadius: '2px',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${audioLevel * 100}%`,
+                background: voiceStatus === 'listening' ? THEME.success : THEME.primary,
+                transition: 'width 0.1s',
+              }} />
+            </div>
+
+            {/* Microphone Button */}
+            <button
+              onClick={handleToggleListening}
+              disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
+              style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '50%',
+                background: voiceStatus === 'listening' ? THEME.danger : THEME.primary,
+                border: 'none',
+                cursor: (voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: voiceStatus === 'listening'
+                  ? `0 0 0 ${8 + audioLevel * 16}px rgba(220,53,69,0.2)`
+                  : '0 4px 12px rgba(0,0,0,0.15)',
+                transition: 'all 0.2s',
+              }}
+            >
+              {voiceStatus === 'listening' ? (
+                <MicOff size={28} color={THEME.white} />
+              ) : (
+                <Mic size={28} color={THEME.white} />
+              )}
+            </button>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleEndVoiceChat}
+                style={{
+                  padding: '10px 20px',
+                  background: THEME.secondary,
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: THEME.text,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                End Voice Chat
+              </button>
+            </div>
           </div>
         )}
+
+        {/* Text Input (only in text mode) */}
+        {chatMode === 'text' && (
+          <>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "Configure API key in Settings"}
+                disabled={isLoading || !isAIConfigured()}
+                maxLength={500}
+                rows={2}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                  resize: 'vertical',
+                  minHeight: '50px',
+                  maxHeight: '120px',
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading || !isAIConfigured()}
+                style={{
+                  padding: '12px 20px',
+                  background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: THEME.white,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  height: 'fit-content',
+                }}
+              >
+                <Send size={18} />
+              </button>
+            </div>
+            {!isAIConfigured() && (
+              <div style={{
+                marginTop: '8px',
+                padding: '8px',
+                background: THEME.warning,
+                borderRadius: '6px',
+                fontSize: '12px',
+                color: THEME.text,
+              }}>
+                Configure your Gemini API key in Settings to enable AI features
+              </div>
+            )}
+          </>
+        )}
       </div>
+
+      {/* Role-Playing Prompts */}
+      {chatMode === 'voice' && voiceStatus === 'ready' && (
+        <div style={{
+          marginTop: '16px',
+          background: THEME.accent,
+          borderRadius: '12px',
+          padding: '16px',
+        }}>
+          <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+            Try these voice role-plays:
+          </h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {[
+              'Practice a cold call intro',
+              'Handle an objection about price',
+              'Schedule a follow-up appointment',
+              'Close a sale',
+            ].map((prompt, index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  if (voiceSessionRef.current && voiceStatus === 'ready') {
+                    voiceSessionRef.current.sendText(`Let's role-play: ${prompt}`);
+                  }
+                }}
+                style={{
+                  padding: '8px 12px',
+                  background: THEME.white,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  color: THEME.text,
+                  cursor: 'pointer',
+                }}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4529,6 +5018,574 @@ function Reports({ users, dailyLogs, appointments }) {
 }
 
 // ========================================
+// SETTINGS COMPONENT
+// ========================================
+
+function SettingsPage({ settings, onSaveSettings }) {
+  const [localSettings, setLocalSettings] = useState(settings);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
+  const [textModels, setTextModels] = useState(TEXT_MODELS);
+  const [liveModels, setLiveModels] = useState(LIVE_MODELS_FALLBACK);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState(null);
+
+  // Update local settings when props change
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
+
+  // Fetch available models when API key is available
+  useEffect(() => {
+    const loadModels = async () => {
+      const apiKey = localSettings.ai.apiKey || settings.ai.apiKey;
+      if (apiKey && apiKey.length >= 10) {
+        setIsLoadingModels(true);
+        setModelsError(null);
+        try {
+          const { textModels: fetchedText, liveModels: fetchedLive } = await fetchAvailableModels(apiKey);
+          setTextModels(fetchedText);
+          setLiveModels(fetchedLive);
+          console.log('Loaded models:', { text: fetchedText.length, live: fetchedLive.length });
+        } catch (error) {
+          console.error('Failed to load models:', error);
+          setModelsError('Failed to load models');
+        } finally {
+          setIsLoadingModels(false);
+        }
+      }
+    };
+    loadModels();
+  }, [localSettings.ai.apiKey, settings.ai.apiKey]);
+
+  const handleRefreshModels = async () => {
+    const apiKey = localSettings.ai.apiKey;
+    if (!apiKey || apiKey.length < 10) {
+      setModelsError('Enter a valid API key first');
+      return;
+    }
+    setIsLoadingModels(true);
+    setModelsError(null);
+    clearModelsCache();
+    try {
+      const { textModels: fetchedText, liveModels: fetchedLive } = await fetchAvailableModels(apiKey);
+      setTextModels(fetchedText);
+      setLiveModels(fetchedLive);
+    } catch (error) {
+      setModelsError('Failed to refresh models');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const handleAISettingChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      ai: { ...prev.ai, [key]: value }
+    }));
+    setValidationResult(null);
+  };
+
+  const handleAppearanceChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      appearance: { ...prev.appearance, [key]: value }
+    }));
+  };
+
+  const handleNotificationChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      notifications: { ...prev.notifications, [key]: value }
+    }));
+  };
+
+  const handleValidateApiKey = async () => {
+    const apiKey = localSettings.ai.apiKey;
+    if (!apiKey || apiKey.trim().length < 10) {
+      setValidationResult({ valid: false, error: 'Please enter a valid API key' });
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationResult(null);
+
+    const result = await validateAPIKey(apiKey);
+    setValidationResult(result);
+    setIsValidating(false);
+  };
+
+  const handleSave = () => {
+    onSaveSettings(localSettings);
+  };
+
+  const inputStyle = {
+    width: '100%',
+    padding: '12px',
+    border: `2px solid ${THEME.border}`,
+    borderRadius: '8px',
+    fontSize: '14px',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  };
+
+  const selectStyle = {
+    ...inputStyle,
+    cursor: 'pointer',
+    background: THEME.white,
+  };
+
+  const labelStyle = {
+    display: 'block',
+    marginBottom: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: THEME.text,
+  };
+
+  const sectionStyle = {
+    background: THEME.white,
+    borderRadius: '12px',
+    padding: '20px',
+    marginBottom: '20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+  };
+
+  const toggleStyle = (enabled) => ({
+    width: '48px',
+    height: '24px',
+    borderRadius: '12px',
+    background: enabled ? THEME.success : THEME.border,
+    position: 'relative',
+    cursor: 'pointer',
+    transition: 'background 0.2s',
+    border: 'none',
+  });
+
+  const toggleKnobStyle = (enabled) => ({
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    background: THEME.white,
+    position: 'absolute',
+    top: '2px',
+    left: enabled ? '26px' : '2px',
+    transition: 'left 0.2s',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+  });
+
+  return (
+    <div style={{ paddingBottom: '80px' }}>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        Settings
+      </h2>
+
+      {/* AI Settings Section */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Bot size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              AI & LLM Settings
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Configure your AI assistant
+            </p>
+          </div>
+        </div>
+
+        {/* API Key */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            <Key size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            Gemini API Key
+          </label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={localSettings.ai.apiKey}
+                onChange={(e) => handleAISettingChange('apiKey', e.target.value)}
+                placeholder="Enter your Gemini API key"
+                style={{ ...inputStyle, paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                }}
+              >
+                {showApiKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+              </button>
+            </div>
+            <button
+              onClick={handleValidateApiKey}
+              disabled={isValidating || !localSettings.ai.apiKey}
+              style={{
+                padding: '12px 16px',
+                background: isValidating ? THEME.border : THEME.primary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: isValidating || !localSettings.ai.apiKey ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {isValidating ? 'Testing...' : 'Test'}
+            </button>
+          </div>
+          {validationResult && (
+            <div style={{
+              marginTop: '8px',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              background: validationResult.valid ? '#D4EDDA' : '#F8D7DA',
+              color: validationResult.valid ? '#155724' : '#721C24',
+            }}>
+              {validationResult.valid ? 'API key is valid!' : `Error: ${validationResult.error}`}
+            </div>
+          )}
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+            Get your API key from{' '}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: THEME.primary }}>
+              Google AI Studio
+            </a>
+          </p>
+        </div>
+
+        {/* Models Header with Refresh */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', color: THEME.textLight }}>
+            {isLoadingModels ? 'Loading models...' : `${textModels.length} text models, ${liveModels.length} live models available`}
+          </div>
+          <button
+            onClick={handleRefreshModels}
+            disabled={isLoadingModels || !localSettings.ai.apiKey}
+            style={{
+              padding: '6px 12px',
+              background: THEME.secondary,
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: THEME.text,
+              cursor: isLoadingModels || !localSettings.ai.apiKey ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isLoadingModels ? 'Loading...' : 'Refresh Models'}
+          </button>
+        </div>
+        {modelsError && (
+          <div style={{
+            marginBottom: '12px',
+            padding: '8px',
+            background: '#F8D7DA',
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: '#721C24',
+          }}>
+            {modelsError}
+          </div>
+        )}
+
+        {/* Text Model Selection */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            <Sliders size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            Text Chat Model
+          </label>
+          <select
+            value={localSettings.ai.textModel}
+            onChange={(e) => handleAISettingChange('textModel', e.target.value)}
+            style={selectStyle}
+            disabled={isLoadingModels}
+          >
+            {textModels.map(model => (
+              <option key={model.id} value={model.id}>
+                {model.name} {model.description ? `- ${model.description}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Voice Model Selection */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            <Mic size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            Voice Chat Model (Live API)
+          </label>
+          <select
+            value={localSettings.ai.voiceModel}
+            onChange={(e) => handleAISettingChange('voiceModel', e.target.value)}
+            style={selectStyle}
+            disabled={isLoadingModels}
+          >
+            {liveModels.length > 0 ? (
+              liveModels.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} {model.description ? `- ${model.description}` : ''}
+                </option>
+              ))
+            ) : (
+              <option value="">No live models available</option>
+            )}
+          </select>
+          {liveModels.length === 0 && (
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.warning }}>
+              No models with bidiGenerateContent support found. Voice chat may not work.
+            </p>
+          )}
+        </div>
+
+        {/* Voice Selection */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            <Volume2 size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            AI Voice
+          </label>
+          <select
+            value={localSettings.ai.voiceName}
+            onChange={(e) => handleAISettingChange('voiceName', e.target.value)}
+            style={selectStyle}
+          >
+            {VOICE_OPTIONS.map(voice => (
+              <option key={voice.id} value={voice.id}>
+                {voice.name} - {voice.description}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Rate Limit */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            Rate Limit (requests/minute)
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="60"
+            value={localSettings.ai.rateLimit}
+            onChange={(e) => handleAISettingChange('rateLimit', parseInt(e.target.value) || 15)}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Voice Chat Toggle */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Enable Voice Chat
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Allow real-time voice conversations with AI
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.ai.voiceChatEnabled)}
+            onClick={() => handleAISettingChange('voiceChatEnabled', !localSettings.ai.voiceChatEnabled)}
+          >
+            <div style={toggleKnobStyle(localSettings.ai.voiceChatEnabled)} />
+          </button>
+        </div>
+
+        {!isVoiceChatSupported() && (
+          <div style={{
+            marginTop: '12px',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            background: THEME.warning,
+            color: THEME.text,
+          }}>
+            Voice chat is not supported in this browser. Try Chrome or Edge.
+          </div>
+        )}
+      </div>
+
+      {/* Appearance Settings */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Sliders size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Appearance
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Customize the look and feel
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Compact Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Use smaller spacing and text
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.appearance.compactMode)}
+            onClick={() => handleAppearanceChange('compactMode', !localSettings.appearance.compactMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.appearance.compactMode)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Show Animations
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Enable celebratory effects
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.appearance.showAnimations)}
+            onClick={() => handleAppearanceChange('showAnimations', !localSettings.appearance.showAnimations)}
+          >
+            <div style={toggleKnobStyle(localSettings.appearance.showAnimations)} />
+          </button>
+        </div>
+      </div>
+
+      {/* Notification Settings */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <MessageSquare size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Notifications
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Manage your alerts
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Goal Reminders
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Remind when behind on goals
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.goalReminders)}
+            onClick={() => handleNotificationChange('goalReminders', !localSettings.notifications.goalReminders)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.goalReminders)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Achievement Alerts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Celebrate when goals are met
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.achievementAlerts)}
+            onClick={() => handleNotificationChange('achievementAlerts', !localSettings.notifications.achievementAlerts)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.achievementAlerts)} />
+          </button>
+        </div>
+      </div>
+
+      {/* Save Button */}
+      <button
+        onClick={handleSave}
+        style={{
+          width: '100%',
+          padding: '16px',
+          background: THEME.primary,
+          border: 'none',
+          borderRadius: '12px',
+          color: THEME.white,
+          fontSize: '16px',
+          fontWeight: '700',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+        }}
+      >
+        <Check size={20} />
+        Save Settings
+      </button>
+
+      {/* App Info */}
+      <div style={{
+        marginTop: '20px',
+        padding: '16px',
+        background: THEME.secondary,
+        borderRadius: '12px',
+        textAlign: 'center',
+      }}>
+        <p style={{ margin: 0, fontSize: '12px', color: THEME.textLight }}>
+          Window Depot Milwaukee Goal Tracker
+        </p>
+        <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+          AI Status: {isAIConfigured() ? 'Configured' : 'Not configured'} |
+          Voice Chat: {isVoiceChatSupported() ? 'Supported' : 'Not supported'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ========================================
 // BOTTOM NAVIGATION
 // ========================================
 
@@ -4540,6 +5597,7 @@ function BottomNav({ activeView, onViewChange, isManager }) {
     { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
     { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
     { id: 'chatbot', label: 'AI Coach', icon: Bot, roles: ['employee', 'manager'] },
+    { id: 'settings', label: 'Settings', icon: Sliders, roles: ['employee', 'manager'] },
     { id: 'team', label: 'Team', icon: Users, roles: ['manager'] },
     { id: 'admin', label: 'Admin', icon: Settings, roles: ['manager'] },
     { id: 'reports', label: 'Reports', icon: TrendingUp, roles: ['manager'] },

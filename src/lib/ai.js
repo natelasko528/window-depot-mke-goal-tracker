@@ -1,7 +1,155 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
-const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+// Default API key from environment variable
+let API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
+let genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+
+// Current model configuration
+let currentModel = 'gemini-2.0-flash';
+
+// Cache for fetched models
+let cachedTextModels = null;
+let cachedLiveModels = null;
+let modelsCacheTime = 0;
+const MODELS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Fallback models if API fetch fails
+export const TEXT_MODELS = [
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast and efficient' },
+  { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', description: 'Lightweight version' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Previous generation' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Pro model' },
+];
+
+// Known live models (models that support bidiGenerateContent for voice chat)
+// These are always included as options since the API may not list all preview models
+export const LIVE_MODELS_FALLBACK = [
+  { id: 'gemini-2.5-flash-native-audio-preview-12-2025', name: 'Gemini 2.5 Flash Native Audio (Recommended)', description: 'Real-time voice streaming' },
+  { id: 'gemini-2.0-flash-live-001', name: 'Gemini 2.0 Flash Live', description: 'Live streaming model' },
+];
+
+/**
+ * Fetch available models from the Gemini API
+ * @param {string} apiKey - The API key to use
+ * @returns {Promise<{textModels: Array, liveModels: Array}>}
+ */
+export const fetchAvailableModels = async (apiKey = API_KEY) => {
+  if (!apiKey) {
+    return { textModels: TEXT_MODELS, liveModels: LIVE_MODELS_FALLBACK };
+  }
+
+  // Check cache
+  const now = Date.now();
+  if (cachedTextModels && cachedLiveModels && (now - modelsCacheTime) < MODELS_CACHE_DURATION) {
+    return { textModels: cachedTextModels, liveModels: cachedLiveModels };
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models = data.models || [];
+
+    // Filter and categorize models
+    const textModels = [];
+    const liveModels = [];
+
+    for (const model of models) {
+      const modelId = model.name.replace('models/', '');
+      const displayName = model.displayName || modelId;
+      const description = model.description || '';
+      const supportedMethods = model.supportedGenerationMethods || [];
+
+      // Check if model supports text generation (generateContent)
+      if (supportedMethods.includes('generateContent')) {
+        // Skip embedding models and other non-chat models
+        if (!modelId.includes('embedding') && !modelId.includes('aqa') && !modelId.includes('imagen')) {
+          textModels.push({
+            id: modelId,
+            name: displayName,
+            description: description.substring(0, 60) + (description.length > 60 ? '...' : ''),
+            inputTokenLimit: model.inputTokenLimit,
+            outputTokenLimit: model.outputTokenLimit,
+          });
+        }
+      }
+
+      // Check if model supports live/bidirectional streaming (bidiGenerateContent)
+      if (supportedMethods.includes('bidiGenerateContent')) {
+        liveModels.push({
+          id: modelId,
+          name: displayName,
+          description: description.substring(0, 60) + (description.length > 60 ? '...' : ''),
+        });
+      }
+    }
+
+    // Sort models - newer versions first
+    const sortModels = (a, b) => {
+      // Prioritize 2.5 > 2.0 > 1.5
+      const getVersion = (id) => {
+        if (id.includes('2.5')) return 3;
+        if (id.includes('2.0')) return 2;
+        if (id.includes('1.5')) return 1;
+        return 0;
+      };
+      const versionDiff = getVersion(b.id) - getVersion(a.id);
+      if (versionDiff !== 0) return versionDiff;
+
+      // Then prioritize flash > pro > others
+      const getType = (id) => {
+        if (id.includes('flash') && !id.includes('lite')) return 2;
+        if (id.includes('pro')) return 1;
+        return 0;
+      };
+      return getType(b.id) - getType(a.id);
+    };
+
+    textModels.sort(sortModels);
+    liveModels.sort(sortModels);
+
+    // Always merge known working voice models with API-discovered ones
+    // The native audio models may not appear in the standard API list
+    const mergedLiveModels = [...LIVE_MODELS_FALLBACK]; // Start with known working models
+
+    // Add any API-discovered live models that aren't already in our list
+    for (const model of liveModels) {
+      if (!LIVE_MODELS_FALLBACK.some(fm => fm.id === model.id)) {
+        mergedLiveModels.push(model);
+      }
+    }
+
+    // Cache results
+    cachedTextModels = textModels.length > 0 ? textModels : TEXT_MODELS;
+    cachedLiveModels = mergedLiveModels;
+    modelsCacheTime = now;
+
+    console.log(`Fetched ${textModels.length} text models and ${mergedLiveModels.length} live models (including ${LIVE_MODELS_FALLBACK.length} known models)`);
+
+    return {
+      textModels: cachedTextModels,
+      liveModels: cachedLiveModels
+    };
+  } catch (error) {
+    console.error('Failed to fetch models:', error);
+    return { textModels: TEXT_MODELS, liveModels: LIVE_MODELS_FALLBACK };
+  }
+};
+
+/**
+ * Clear the models cache to force a refresh
+ */
+export const clearModelsCache = () => {
+  cachedTextModels = null;
+  cachedLiveModels = null;
+  modelsCacheTime = 0;
+};
 
 // Available Gemini models (verified as of 2025)
 export const AVAILABLE_MODELS = [
@@ -18,7 +166,7 @@ export const DEFAULT_MODEL = 'gemini-2.5-flash';
 // Rate limiting (simple in-memory, consider Redis for production)
 let requestCount = 0;
 let resetTime = Date.now();
-const MAX_REQUESTS_PER_MINUTE = 15;
+let MAX_REQUESTS_PER_MINUTE = 15;
 
 const checkRateLimit = () => {
   const now = Date.now();
@@ -33,7 +181,7 @@ const checkRateLimit = () => {
 };
 
 // System prompt for the AI
-const SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app. 
+const SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app.
 Your role is to:
 - Provide motivation and coaching to help users reach their daily goals
 - Answer questions about the app features, goals, and performance
@@ -45,6 +193,50 @@ Users can track their daily progress toward goals and see weekly leaderboards.
 
 Be concise but helpful. Use emojis sparingly. Focus on actionable advice.`;
 
+/**
+ * Configure the AI module with custom settings
+ * @param {Object} settings - Configuration object
+ * @param {string} settings.apiKey - Gemini API key
+ * @param {string} settings.model - Model ID to use
+ * @param {number} settings.rateLimit - Max requests per minute
+ */
+export const configureAI = (settings = {}) => {
+  if (settings.apiKey !== undefined) {
+    API_KEY = settings.apiKey;
+    genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+  }
+
+  if (settings.model) {
+    currentModel = settings.model;
+  }
+
+  if (settings.rateLimit !== undefined && settings.rateLimit > 0) {
+    MAX_REQUESTS_PER_MINUTE = settings.rateLimit;
+  }
+
+  return {
+    isConfigured: isAIConfigured(),
+    model: currentModel,
+    rateLimit: MAX_REQUESTS_PER_MINUTE,
+  };
+};
+
+/**
+ * Get current AI configuration
+ */
+export const getAIConfig = () => ({
+  apiKey: API_KEY ? '********' + API_KEY.slice(-4) : '',
+  hasApiKey: !!API_KEY,
+  model: currentModel,
+  rateLimit: MAX_REQUESTS_PER_MINUTE,
+  isConfigured: isAIConfigured(),
+});
+
+/**
+ * Get the raw API key (use carefully)
+ */
+export const getAPIKey = () => API_KEY;
+
 // Check if AI is configured
 export const isAIConfigured = () => {
   return !!API_KEY && !!genAI;
@@ -53,22 +245,16 @@ export const isAIConfigured = () => {
 // Get AI response with context
 export const getAIResponse = async (message, context = {}, modelName = DEFAULT_MODEL) => {
   if (!isAIConfigured()) {
-    throw new Error('AI is not configured. Please add REACT_APP_GEMINI_API_KEY to your environment variables.');
+    throw new Error('AI is not configured. Please add your Gemini API key in Settings.');
   }
 
   checkRateLimit();
 
   try {
-    // Validate model name - fallback to default if invalid
-    const validModel = AVAILABLE_MODELS.find(m => m.value === modelName);
-    const modelToUse = validModel ? modelName : DEFAULT_MODEL;
-    
-    if (modelToUse !== modelName) {
-      console.warn(`Invalid model "${modelName}", using default: ${modelToUse}`);
-    }
-    
+    // Use provided modelName if valid, otherwise use currentModel
+    // This supports both per-request model selection and global model configuration
+    const modelToUse = modelName && modelName !== DEFAULT_MODEL ? modelName : currentModel;
     const model = genAI.getGenerativeModel({ model: modelToUse });
-    
     // Build context string
     let contextString = '';
     if (context.currentUser) {
@@ -93,10 +279,30 @@ export const getAIResponse = async (message, context = {}, modelName = DEFAULT_M
     return text;
   } catch (error) {
     console.error('AI request failed:', error);
-    if (error.message.includes('Rate limit')) {
+
+    // Provide specific error messages for common failure scenarios
+    if (error.message?.includes('Rate limit') || error.message?.includes('rate_limit')) {
       throw error;
     }
-    throw new Error('Failed to get AI response. Please try again.');
+
+    if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
+      throw new Error('Invalid API key. Please check your API key in Settings.');
+    }
+
+    if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error('API quota exceeded. Please try again later or contact support.');
+    }
+
+    if (error.message?.includes('network') || error.message?.includes('fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    }
+
+    if (error.message?.includes('model not found') || error.message?.includes('NOT_FOUND')) {
+      throw new Error(`Model "${currentModel}" is not available. Try a different model in Settings.`);
+    }
+
+    // Generic fallback with original error context
+    throw new Error(`Failed to get AI response: ${error.message || 'Unknown error'}`);
   }
 };
 
@@ -108,3 +314,58 @@ export const getRemainingRequests = () => {
   }
   return Math.max(0, MAX_REQUESTS_PER_MINUTE - requestCount);
 };
+
+/**
+ * Validate an API key by making a test request
+ * @param {string} apiKey - The API key to validate
+ * @returns {Promise<{valid: boolean, error?: string}>}
+ */
+export const validateAPIKey = async (apiKey) => {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+    return { valid: false, error: 'Invalid API key format' };
+  }
+
+  try {
+    const testGenAI = new GoogleGenerativeAI(apiKey.trim());
+    const model = testGenAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    // Make a minimal test request
+    const result = await model.generateContent('Say "OK"');
+    const response = await result.response;
+    const text = response.text();
+
+    if (text) {
+      return { valid: true };
+    }
+
+    return { valid: false, error: 'No response received' };
+  } catch (error) {
+    console.error('API key validation failed:', error);
+
+    if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
+      return { valid: false, error: 'Invalid API key' };
+    }
+
+    if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      return { valid: false, error: 'API quota exceeded' };
+    }
+
+    return { valid: false, error: error.message || 'Validation failed' };
+  }
+};
+
+const aiModule = {
+  getAIResponse,
+  isAIConfigured,
+  getRemainingRequests,
+  configureAI,
+  getAIConfig,
+  getAPIKey,
+  validateAPIKey,
+  fetchAvailableModels,
+  clearModelsCache,
+  TEXT_MODELS,
+  LIVE_MODELS_FALLBACK,
+};
+
+export default aiModule;
