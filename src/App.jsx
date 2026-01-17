@@ -26,13 +26,14 @@ import {
   fetchAvailableModels,
   clearModelsCache,
   TEXT_MODELS,
-  LIVE_MODELS_FALLBACK
+  LIVE_MODELS_FALLBACK,
+  AVAILABLE_MODELS,
+  DEFAULT_MODEL
 } from './lib/ai';
 import {
   createVoiceChatSession,
   isVoiceChatSupported,
   VOICE_OPTIONS
->>>>>>> origin/master
 } from './lib/voiceChat';
 
 // ========================================
@@ -3569,13 +3570,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
         userGoals: currentUser?.goals,
       };
 
-<<<<<<< HEAD
-      const response = await getAIResponse(userMessage.content, context, selectedModel);
-      
-=======
       const response = await getAIResponse(userMessage.content, context);
-
->>>>>>> origin/master
       const aiMessage = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
@@ -3606,7 +3601,6 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
     }
   };
 
-<<<<<<< HEAD
   // Load a specific chat session
   const loadSession = async (sessionId) => {
     if (!currentUser || !sessionId) return;
@@ -3630,79 +3624,6 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
     await createNewSession(currentUser.id);
   };
 
-  // Voice chat handlers
-  const handleVoiceChatToggle = async () => {
-    if (chatMode === 'voice') {
-      // Switch to text mode
-      if (isVoiceRecording) {
-        stopRecording();
-        setIsVoiceRecording(false);
-      }
-      if (isVoiceChatInitialized()) {
-        await closeVoiceChat();
-      }
-      setChatMode('text');
-    } else {
-      // Switch to voice mode
-      if (!isAIConfigured()) {
-        alert('AI is not configured. Please add REACT_APP_GEMINI_API_KEY.');
-        return;
-      }
-
-      try {
-        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-        if (!apiKey) {
-          alert('API key not found');
-          return;
-        }
-
-        await initializeVoiceChat(apiKey, 'gemini-2.5-flash-native-audio-preview-12-2025', {
-          systemInstruction: "You are a helpful AI coach for Window Depot Milwaukee's goal tracking app. Provide motivation and coaching to help users reach their daily goals.",
-          onMessage: (messageData) => {
-            // Handle voice chat messages if needed
-            console.log('Voice chat message:', messageData);
-          },
-          onTranscript: (text) => {
-            // Add transcript as message
-            const transcriptMessage = {
-              id: `voice-${Date.now()}`,
-              role: 'assistant',
-              content: text,
-              timestamp: Date.now(),
-            };
-            setMessages(prev => [...prev, transcriptMessage]);
-          },
-          onError: (error) => {
-            console.error('Voice chat error:', error);
-            alert('Voice chat error: ' + error.message);
-          }
-        });
-
-        setChatMode('voice');
-      } catch (error) {
-        console.error('Failed to initialize voice chat:', error);
-        alert('Failed to start voice chat: ' + error.message);
-      }
-    }
-  };
-
-  const handleVoiceRecordingToggle = async () => {
-    if (!isVoiceChatInitialized()) {
-      alert('Voice chat not initialized. Please enable voice mode first.');
-      return;
-    }
-
-    if (isVoiceRecording) {
-      stopRecording();
-      setIsVoiceRecording(false);
-    } else {
-      try {
-        await startRecording();
-        setIsVoiceRecording(true);
-      } catch (error) {
-        console.error('Failed to start recording:', error);
-        alert('Failed to start recording: ' + error.message);
-=======
   // Voice chat handlers
   const handleStartVoiceChat = async () => {
     if (!isAIConfigured()) {
@@ -3781,21 +3702,10 @@ Keep responses conversational and concise for voice interaction.`,
         await voiceSessionRef.current.startListening();
       } catch (error) {
         setVoiceError(error.message);
->>>>>>> origin/master
       }
     }
   };
 
-<<<<<<< HEAD
-  // Cleanup voice chat on unmount
-  useEffect(() => {
-    return () => {
-      if (isVoiceChatInitialized()) {
-        closeVoiceChat();
-      }
-    };
-  }, []);
-=======
   const handleEndVoiceChat = () => {
     if (voiceSessionRef.current) {
       voiceSessionRef.current.disconnect();
@@ -3827,7 +3737,6 @@ Keep responses conversational and concise for voice interaction.`,
       default: return THEME.textLight;
     }
   };
->>>>>>> origin/master
 
   return (
     <div>
@@ -3835,97 +3744,6 @@ Keep responses conversational and concise for voice interaction.`,
         <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
           AI Coach
         </h2>
-<<<<<<< HEAD
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {isAIConfigured() && (
-            <>
-              <select
-                value={selectedModel}
-                onChange={(e) => {
-                  const newModel = e.target.value;
-                  setSelectedModel(newModel);
-                  saveModelPreference(newModel);
-                }}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: `1px solid ${THEME.border}`,
-                  background: THEME.white,
-                  color: THEME.text,
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {AVAILABLE_MODELS.map(model => (
-                  <option key={model.value} value={model.value}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
-              <div style={{ fontSize: '12px', color: THEME.textLight }}>
-                {remainingRequests} requests/min remaining
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Text Chat / Voice Chat Mode Toggle */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '12px', 
-        marginBottom: '20px' 
-      }}>
-        <button
-          onClick={() => {
-            if (chatMode !== 'text') {
-              handleVoiceChatToggle();
-            }
-          }}
-          style={{
-            flex: 1,
-            padding: '16px 24px',
-            background: chatMode === 'text' ? THEME.primary : THEME.secondary,
-            color: chatMode === 'text' ? THEME.white : THEME.text,
-            border: `2px solid ${chatMode === 'text' ? THEME.primary : THEME.border}`,
-            borderRadius: '8px',
-            fontSize: '16px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            transition: 'all 0.2s',
-          }}
-        >
-          <MessageSquare size={20} />
-          Text Chat
-        </button>
-        <button
-          onClick={handleVoiceChatToggle}
-          style={{
-            flex: 1,
-            padding: '16px 24px',
-            background: chatMode === 'voice' ? THEME.primary : THEME.secondary,
-            color: chatMode === 'voice' ? THEME.white : THEME.text,
-            border: `2px solid ${chatMode === 'voice' ? THEME.primary : THEME.border}`,
-            borderRadius: '8px',
-            fontSize: '16px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            transition: 'all 0.2s',
-          }}
-        >
-          <Mic size={20} />
-          Voice Chat
-        </button>
-=======
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {isAIConfigured() && chatMode === 'text' && (
             <div style={{ fontSize: '12px', color: THEME.textLight }}>
@@ -3938,7 +3756,6 @@ Keep responses conversational and concise for voice interaction.`,
             </div>
           )}
         </div>
->>>>>>> origin/master
       </div>
 
       {/* Mode Toggle */}
@@ -4191,96 +4008,68 @@ Keep responses conversational and concise for voice interaction.`,
           <div ref={messagesEndRef} />
         </div>
 
-<<<<<<< HEAD
         {/* Input - Text Chat Mode */}
         {chatMode === 'text' && (
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
-              disabled={isLoading || !isAIConfigured()}
-              maxLength={500}
-              rows={2}
-              style={{
-                flex: 1,
-                padding: '12px',
-                border: `2px solid ${THEME.border}`,
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-                resize: 'vertical',
-                minHeight: '50px',
-                maxHeight: '120px',
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading || !isAIConfigured()}
-              style={{
-                padding: '12px 20px',
-                background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
-                border: 'none',
-                borderRadius: '8px',
-                color: THEME.white,
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                height: 'fit-content',
-              }}
-            >
-              <Send size={18} />
-            </button>
-          </div>
-        )}
-
-        {/* Voice Chat Mode - Recording Button */}
-        {chatMode === 'voice' && (
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center',
-            padding: '20px'
-          }}>
-            <button
-              onClick={handleVoiceRecordingToggle}
-              disabled={!isVoiceChatInitialized()}
-              style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
-                background: isVoiceRecording ? THEME.danger : THEME.primary,
-                border: 'none',
-                color: THEME.white,
-                cursor: isVoiceChatInitialized() ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: isVoiceRecording ? '0 4px 12px rgba(220, 53, 69, 0.4)' : '0 4px 12px rgba(0, 86, 164, 0.4)',
-                transition: 'all 0.3s',
-              }}
-            >
-              <Mic size={32} />
-            </button>
-            <div style={{ 
-              marginLeft: '16px', 
-              fontSize: '14px', 
-              color: THEME.textLight 
-            }}>
-              {isVoiceRecording ? 'Recording... Click to stop' : 'Click to start recording'}
+          <>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
+                disabled={isLoading || !isAIConfigured()}
+                maxLength={500}
+                rows={2}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                  resize: 'vertical',
+                  minHeight: '50px',
+                  maxHeight: '120px',
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading || !isAIConfigured()}
+                style={{
+                  padding: '12px 20px',
+                  background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: THEME.white,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  height: 'fit-content',
+                }}
+              >
+                <Send size={18} />
+              </button>
             </div>
-          </div>
+            {!isAIConfigured() && (
+              <div style={{
+                marginTop: '8px',
+                padding: '8px',
+                background: THEME.warning,
+                borderRadius: '6px',
+                fontSize: '12px',
+                color: THEME.text,
+              }}>
+                Configure your Gemini API key in Settings to enable AI features
+              </div>
+            )}
+          </>
         )}
-        {!isAIConfigured() && (
-=======
         {/* Voice Chat Controls */}
         {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
->>>>>>> origin/master
           <div style={{
             display: 'flex',
             flexDirection: 'column',
