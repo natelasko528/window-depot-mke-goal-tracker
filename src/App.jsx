@@ -766,9 +766,10 @@ export default function WindowDepotTracker() {
           createdAt: data.created_at,
         };
 
-        setUsers(prev => [...prev, newUser]);
+        const updatedUsers = [...users, newUser];
+        setUsers(updatedUsers);
         setCurrentUser(newUser);
-        await storage.set('users', [...users, newUser]);
+        await storage.set('users', updatedUsers);
         showToast(`Welcome, ${sanitizedName}!`, 'success');
         return true;
       } else {
@@ -782,9 +783,10 @@ export default function WindowDepotTracker() {
           createdAt: new Date().toISOString(),
         };
 
-        setUsers(prev => [...prev, newUser]);
+        const updatedUsers = [...users, newUser];
+        setUsers(updatedUsers);
         setCurrentUser(newUser);
-        await storage.set('users', [...users, newUser]);
+        await storage.set('users', updatedUsers);
 
         // Queue for sync when both online and configured
         if (isSupabaseConfigured) {
@@ -832,27 +834,28 @@ export default function WindowDepotTracker() {
         });
       }
       
-      setUsers(prev => prev.filter(u => u.id !== userId));
-      
-      // Clean up related data locally
-      setDailyLogs(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(date => {
-          if (updated[date][userId]) {
-            delete updated[date][userId];
-          }
-        });
-        return updated;
+      // Compute updated data first
+      const updatedUsers = users.filter(u => u.id !== userId);
+      const updatedDailyLogs = { ...dailyLogs };
+      Object.keys(updatedDailyLogs).forEach(date => {
+        if (updatedDailyLogs[date][userId]) {
+          delete updatedDailyLogs[date][userId];
+        }
       });
-      
-      setAppointments(prev => prev.filter(a => a.userId !== userId));
-      setFeed(prev => prev.filter(p => p.userId !== userId));
-      
-      // Update storage
-      await storage.set('users', users.filter(u => u.id !== userId));
-      await storage.set('dailyLogs', dailyLogs);
-      await storage.set('appointments', appointments.filter(a => a.userId !== userId));
-      await storage.set('feed', feed.filter(p => p.userId !== userId));
+      const updatedAppointments = appointments.filter(a => a.userId !== userId);
+      const updatedFeed = feed.filter(p => p.userId !== userId);
+
+      // Update state
+      setUsers(updatedUsers);
+      setDailyLogs(updatedDailyLogs);
+      setAppointments(updatedAppointments);
+      setFeed(updatedFeed);
+
+      // Update storage with the same computed values
+      await storage.set('users', updatedUsers);
+      await storage.set('dailyLogs', updatedDailyLogs);
+      await storage.set('appointments', updatedAppointments);
+      await storage.set('feed', updatedFeed);
       
       if (currentUser?.id === userId) {
         setCurrentUser(null);
@@ -1017,8 +1020,9 @@ export default function WindowDepotTracker() {
               comments: [],
               isAuto: true,
             };
-            setFeed(prev => [newPost, ...prev]);
-            await storage.set('feed', [newPost, ...feed]);
+            const updatedFeed = [newPost, ...feed];
+            setFeed(updatedFeed);
+            await storage.set('feed', updatedFeed);
           }
         } else {
           // Offline: create local post, queue for sync
@@ -1033,8 +1037,9 @@ export default function WindowDepotTracker() {
             comments: [],
             isAuto: true,
           };
-          setFeed(prev => [newPost, ...prev]);
-          await storage.set('feed', [newPost, ...feed]);
+          const updatedFeed = [newPost, ...feed];
+          setFeed(updatedFeed);
+          await storage.set('feed', updatedFeed);
           
           if (!currentUser.id.startsWith('temp_')) {
             await queueSyncOperation({
@@ -1212,8 +1217,9 @@ export default function WindowDepotTracker() {
         }
       }
       
-      setAppointments(prev => [newAppt, ...prev]);
-      await storage.set('appointments', [newAppt, ...appointments]);
+      const updatedAppointments = [newAppt, ...appointments];
+      setAppointments(updatedAppointments);
+      await storage.set('appointments', updatedAppointments);
       
       // If counts as demo, increment demo count
       if (newAppt.countsAsDemo) {
@@ -1250,8 +1256,9 @@ export default function WindowDepotTracker() {
         });
       }
       
-      setAppointments(prev => prev.filter(a => a.id !== apptId));
-      await storage.set('appointments', appointments.filter(a => a.id !== apptId));
+      const updatedAppointments = appointments.filter(a => a.id !== apptId);
+      setAppointments(updatedAppointments);
+      await storage.set('appointments', updatedAppointments);
       showToast('Appointment deleted', 'success');
     } catch (error) {
       console.error('Failed to delete appointment:', error);
@@ -1329,8 +1336,9 @@ export default function WindowDepotTracker() {
         }
       }
       
-      setFeed(prev => [newPost, ...prev]);
-      await storage.set('feed', [newPost, ...feed]);
+      const updatedFeed = [newPost, ...feed];
+      setFeed(updatedFeed);
+      await storage.set('feed', updatedFeed);
       showToast('Post created', 'success');
       return true;
     } catch (error) {
@@ -1481,27 +1489,57 @@ export default function WindowDepotTracker() {
     }
   }, [currentUser, showToast, feed]);
   
-  const editPost = useCallback((postId, newContent) => {
+  const editPost = useCallback(async (postId, newContent) => {
     const validationError = VALIDATIONS.postContent(newContent);
     if (validationError) {
       showToast(validationError, 'error');
       return false;
     }
-    
-    setFeed(prev => prev.map(post => 
-      post.id === postId 
-        ? { 
-            ...post, 
-            content: sanitizeInput(newContent),
-            edited: true,
-            editedAt: Date.now(),
-          }
-        : post
-    ));
-    
-    showToast('Post updated', 'success');
-    return true;
-  }, [showToast]);
+
+    const sanitizedContent = sanitizeInput(newContent);
+
+    try {
+      // Update in Supabase
+      if (navigator.onLine && isSupabaseConfigured && !postId.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('feed_posts')
+          .update({ content: sanitizedContent })
+          .eq('id', postId);
+
+        if (error) throw error;
+      } else if (isSupabaseConfigured && !postId.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'update',
+          table: 'feed_posts',
+          id: postId,
+          data: { content: sanitizedContent },
+        });
+      }
+
+      // Update local state
+      const updatedFeed = feed.map(post =>
+        post.id === postId
+          ? {
+              ...post,
+              content: sanitizedContent,
+              edited: true,
+              editedAt: Date.now(),
+            }
+          : post
+      );
+
+      setFeed(updatedFeed);
+      await storage.set('feed', updatedFeed);
+
+      showToast('Post updated', 'success');
+      return true;
+    } catch (error) {
+      console.error('Failed to edit post:', error);
+      showToast('Failed to update post', 'error');
+      return false;
+    }
+  }, [showToast, feed]);
   
   const deletePost = useCallback(async (postId) => {
     if (!window.confirm('Delete this post?')) return;
@@ -1524,8 +1562,9 @@ export default function WindowDepotTracker() {
         });
       }
       
-      setFeed(prev => prev.filter(p => p.id !== postId));
-      await storage.set('feed', feed.filter(p => p.id !== postId));
+      const updatedFeed = feed.filter(p => p.id !== postId);
+      setFeed(updatedFeed);
+      await storage.set('feed', updatedFeed);
       showToast('Post deleted', 'success');
     } catch (error) {
       console.error('Failed to delete post:', error);
