@@ -116,7 +116,6 @@ export const fetchAvailableModels = async (apiKey = API_KEY) => {
 
     // Always merge known working voice models with API-discovered ones
     // The native audio models may not appear in the standard API list
-    const knownLiveModelIds = new Set(liveModels.map(m => m.id));
     const mergedLiveModels = [...LIVE_MODELS_FALLBACK]; // Start with known working models
 
     // Add any API-discovered live models that aren't already in our list

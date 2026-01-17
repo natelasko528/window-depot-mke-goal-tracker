@@ -13,7 +13,9 @@ let isPlaying = false;
 let currentModel = 'gemini-2.5-flash-native-audio-preview-12-2025'; // Native audio model for Live API
 
 // Audio format constants (per Gemini Live API spec)
+// eslint-disable-next-line no-unused-vars
 const SEND_SAMPLE_RATE = 16000; // 16kHz for input
+// eslint-disable-next-line no-unused-vars
 const RECEIVE_SAMPLE_RATE = 24000; // 24kHz for output
 
 // Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
