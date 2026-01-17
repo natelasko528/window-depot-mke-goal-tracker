@@ -21,9 +21,11 @@ export const TEXT_MODELS = [
   { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Pro model' },
 ];
 
-// Fallback live models (models that support bidiGenerateContent)
+// Known live models (models that support bidiGenerateContent for voice chat)
+// These are always included as options since the API may not list all preview models
 export const LIVE_MODELS_FALLBACK = [
-  { id: 'gemini-2.5-flash-native-audio-preview-12-2025', name: 'Gemini 2.5 Flash Native Audio', description: 'Real-time voice streaming' },
+  { id: 'gemini-2.5-flash-native-audio-preview-12-2025', name: 'Gemini 2.5 Flash Native Audio (Recommended)', description: 'Real-time voice streaming' },
+  { id: 'gemini-2.0-flash-live-001', name: 'Gemini 2.0 Flash Live', description: 'Live streaming model' },
 ];
 
 /**
@@ -112,12 +114,24 @@ export const fetchAvailableModels = async (apiKey = API_KEY) => {
     textModels.sort(sortModels);
     liveModels.sort(sortModels);
 
+    // Always merge known working voice models with API-discovered ones
+    // The native audio models may not appear in the standard API list
+    const knownLiveModelIds = new Set(liveModels.map(m => m.id));
+    const mergedLiveModels = [...LIVE_MODELS_FALLBACK]; // Start with known working models
+
+    // Add any API-discovered live models that aren't already in our list
+    for (const model of liveModels) {
+      if (!LIVE_MODELS_FALLBACK.some(fm => fm.id === model.id)) {
+        mergedLiveModels.push(model);
+      }
+    }
+
     // Cache results
     cachedTextModels = textModels.length > 0 ? textModels : TEXT_MODELS;
-    cachedLiveModels = liveModels.length > 0 ? liveModels : LIVE_MODELS_FALLBACK;
+    cachedLiveModels = mergedLiveModels;
     modelsCacheTime = now;
 
-    console.log(`Fetched ${textModels.length} text models and ${liveModels.length} live models`);
+    console.log(`Fetched ${textModels.length} text models and ${mergedLiveModels.length} live models (including ${LIVE_MODELS_FALLBACK.length} known models)`);
 
     return {
       textModels: cachedTextModels,
