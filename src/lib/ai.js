@@ -21,9 +21,9 @@ export const TEXT_MODELS = [
   { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Pro model' },
 ];
 
-// Fallback live models
+// Fallback live models (models that support bidiGenerateContent)
 export const LIVE_MODELS_FALLBACK = [
-  { id: 'gemini-2.0-flash-live-001', name: 'Gemini 2.0 Flash Live', description: 'Real-time voice' },
+  { id: 'gemini-2.5-flash-native-audio-preview-12-2025', name: 'Gemini 2.5 Flash Native Audio', description: 'Real-time voice streaming' },
 ];
 
 /**
