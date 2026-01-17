@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Clock, ChevronDown, Mic } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -23,6 +23,14 @@ import {
   AVAILABLE_MODELS,
   DEFAULT_MODEL
 } from './lib/ai';
+import {
+  initializeVoiceChat,
+  startRecording,
+  stopRecording,
+  closeVoiceChat,
+  isRecordingActive,
+  isVoiceChatInitialized
+} from './lib/voiceChat';
 
 // ========================================
 // THEME & CONSTANTS
@@ -3262,7 +3270,12 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
   const [isLoading, setIsLoading] = useState(false);
   const [remainingRequests, setRemainingRequests] = useState(getRemainingRequests());
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [chatSessions, setChatSessions] = useState([]);
+  const [chatMode, setChatMode] = useState('text'); // 'text' or 'voice'
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const messagesEndRef = useRef(null);
+  const saveDebounceRef = useRef(null);
 
   // Load saved model preference
   useEffect(() => {
@@ -3280,6 +3293,148 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
       loadModelPreference();
     }
   }, [currentUser]);
+
+  // Chat persistence: Load chat sessions and current session
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      if (!currentUser) return;
+
+      try {
+        const userId = currentUser.id;
+        
+        // Load chat sessions list
+        const sessions = await storage.get(`chatSessions_${userId}`, []);
+        setChatSessions(sessions);
+
+        // Load current session or create new one
+        const currentSession = sessions.length > 0 ? sessions[0] : null;
+        
+        if (currentSession) {
+          // Load messages for current session
+          const sessionMessages = await storage.get(`chatMessages_${userId}_${currentSession.id}`, null);
+          if (sessionMessages && sessionMessages.length > 0) {
+            setMessages(sessionMessages);
+            setCurrentSessionId(currentSession.id);
+          } else {
+            // Create new session if messages are missing
+            await createNewSession(userId);
+          }
+        } else {
+          // Create new session if none exist
+          await createNewSession(userId);
+        }
+      } catch (error) {
+        console.error('Failed to load chat history:', error);
+        // On error, create new session
+        if (currentUser) {
+          await createNewSession(currentUser.id);
+        }
+      }
+    };
+
+    loadChatHistory();
+  }, [currentUser?.id]);
+
+  // Helper function to create new chat session
+  const createNewSession = async (userId) => {
+    const sessionId = `session_${Date.now()}`;
+    const newSession = {
+      id: sessionId,
+      title: 'New Chat',
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+      messageCount: 1,
+      chatMode: 'text'
+    };
+
+    const welcomeMessage = {
+      id: 'welcome',
+      role: 'assistant',
+      content: isAIConfigured() 
+        ? "Hi! I'm your AI coach. I can help you with your goals, answer questions about the app, and provide motivation. What would you like to know?"
+        : "AI chatbot is not configured. Please add REACT_APP_GEMINI_API_KEY to enable AI features.",
+      timestamp: Date.now(),
+    };
+
+    const sessions = await storage.get(`chatSessions_${userId}`, []);
+    const updatedSessions = [newSession, ...sessions];
+    await storage.set(`chatSessions_${userId}`, updatedSessions);
+
+    await storage.set(`chatMessages_${userId}_${sessionId}`, [welcomeMessage]);
+
+    setCurrentSessionId(sessionId);
+    setChatSessions(updatedSessions);
+    setMessages([welcomeMessage]);
+  };
+
+  // Helper function to save messages to storage
+  const saveMessages = useCallback(async (messagesToSave, sessionId, userId) => {
+    if (!sessionId || !userId || !messagesToSave || messagesToSave.length === 0) return;
+
+    try {
+      // Save messages
+      await storage.set(`chatMessages_${userId}_${sessionId}`, messagesToSave);
+
+      // Update session metadata
+      const sessions = await storage.get(`chatSessions_${userId}`, []);
+      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+      
+      if (sessionIndex >= 0) {
+        const session = sessions[sessionIndex];
+        const firstUserMessage = messagesToSave.find(m => m.role === 'user');
+        const title = firstUserMessage 
+          ? (firstUserMessage.content.substring(0, 50) + (firstUserMessage.content.length > 50 ? '...' : ''))
+          : 'New Chat';
+
+        sessions[sessionIndex] = {
+          ...session,
+          title,
+          lastMessageAt: Date.now(),
+          messageCount: messagesToSave.length
+        };
+
+        // Move updated session to top
+        const updatedSession = sessions.splice(sessionIndex, 1)[0];
+        sessions.unshift(updatedSession);
+
+        await storage.set(`chatSessions_${userId}`, sessions);
+        setChatSessions(sessions);
+      }
+    } catch (error) {
+      console.error('Failed to save messages:', error);
+    }
+  }, []);
+
+  // Auto-save messages with debouncing for assistant messages
+  useEffect(() => {
+    if (!currentUser || !currentSessionId || messages.length === 0) return;
+
+    // Clear existing debounce
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current);
+    }
+
+    // Save immediately for user messages, debounce for assistant messages
+    const lastMessage = messages[messages.length - 1];
+    const isUserMessage = lastMessage && lastMessage.role === 'user';
+
+    if (isUserMessage) {
+      // Save immediately on user message
+      saveMessages(messages, currentSessionId, currentUser.id);
+    } else {
+      // Debounce assistant messages (save after 1s of no new messages)
+      saveDebounceRef.current = setTimeout(() => {
+        saveMessages(messages, currentSessionId, currentUser.id);
+      }, 1000);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current);
+      }
+    };
+  }, [messages, currentSessionId, currentUser, saveMessages]);
 
   // Save model preference
   const saveModelPreference = async (model) => {
@@ -3362,6 +3517,114 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
     }
   };
 
+  // Load a specific chat session
+  const loadSession = async (sessionId) => {
+    if (!currentUser || !sessionId) return;
+
+    try {
+      const userId = currentUser.id;
+      const sessionMessages = await storage.get(`chatMessages_${userId}_${sessionId}`, []);
+      
+      if (sessionMessages && sessionMessages.length > 0) {
+        setMessages(sessionMessages);
+        setCurrentSessionId(sessionId);
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+    }
+  };
+
+  // Create new chat session
+  const handleNewChat = async () => {
+    if (!currentUser) return;
+    await createNewSession(currentUser.id);
+  };
+
+  // Voice chat handlers
+  const handleVoiceChatToggle = async () => {
+    if (chatMode === 'voice') {
+      // Switch to text mode
+      if (isVoiceRecording) {
+        stopRecording();
+        setIsVoiceRecording(false);
+      }
+      if (isVoiceChatInitialized()) {
+        await closeVoiceChat();
+      }
+      setChatMode('text');
+    } else {
+      // Switch to voice mode
+      if (!isAIConfigured()) {
+        alert('AI is not configured. Please add REACT_APP_GEMINI_API_KEY.');
+        return;
+      }
+
+      try {
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+        if (!apiKey) {
+          alert('API key not found');
+          return;
+        }
+
+        await initializeVoiceChat(apiKey, 'gemini-2.5-flash-native-audio-preview-12-2025', {
+          systemInstruction: "You are a helpful AI coach for Window Depot Milwaukee's goal tracking app. Provide motivation and coaching to help users reach their daily goals.",
+          onMessage: (messageData) => {
+            // Handle voice chat messages if needed
+            console.log('Voice chat message:', messageData);
+          },
+          onTranscript: (text) => {
+            // Add transcript as message
+            const transcriptMessage = {
+              id: `voice-${Date.now()}`,
+              role: 'assistant',
+              content: text,
+              timestamp: Date.now(),
+            };
+            setMessages(prev => [...prev, transcriptMessage]);
+          },
+          onError: (error) => {
+            console.error('Voice chat error:', error);
+            alert('Voice chat error: ' + error.message);
+          }
+        });
+
+        setChatMode('voice');
+      } catch (error) {
+        console.error('Failed to initialize voice chat:', error);
+        alert('Failed to start voice chat: ' + error.message);
+      }
+    }
+  };
+
+  const handleVoiceRecordingToggle = async () => {
+    if (!isVoiceChatInitialized()) {
+      alert('Voice chat not initialized. Please enable voice mode first.');
+      return;
+    }
+
+    if (isVoiceRecording) {
+      stopRecording();
+      setIsVoiceRecording(false);
+    } else {
+      try {
+        await startRecording();
+        setIsVoiceRecording(true);
+      } catch (error) {
+        console.error('Failed to start recording:', error);
+        alert('Failed to start recording: ' + error.message);
+      }
+    }
+  };
+
+  // Cleanup voice chat on unmount
+  useEffect(() => {
+    return () => {
+      if (isVoiceChatInitialized()) {
+        closeVoiceChat();
+      }
+    };
+  }, []);
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -3403,6 +3666,62 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         </div>
       </div>
 
+      {/* Text Chat / Voice Chat Mode Toggle */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '12px', 
+        marginBottom: '20px' 
+      }}>
+        <button
+          onClick={() => {
+            if (chatMode !== 'text') {
+              handleVoiceChatToggle();
+            }
+          }}
+          style={{
+            flex: 1,
+            padding: '16px 24px',
+            background: chatMode === 'text' ? THEME.primary : THEME.secondary,
+            color: chatMode === 'text' ? THEME.white : THEME.text,
+            border: `2px solid ${chatMode === 'text' ? THEME.primary : THEME.border}`,
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.2s',
+          }}
+        >
+          <MessageSquare size={20} />
+          Text Chat
+        </button>
+        <button
+          onClick={handleVoiceChatToggle}
+          style={{
+            flex: 1,
+            padding: '16px 24px',
+            background: chatMode === 'voice' ? THEME.primary : THEME.secondary,
+            color: chatMode === 'voice' ? THEME.white : THEME.text,
+            border: `2px solid ${chatMode === 'voice' ? THEME.primary : THEME.border}`,
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.2s',
+          }}
+        >
+          <Mic size={20} />
+          Voice Chat
+        </button>
+      </div>
+
       <div style={{
         background: THEME.white,
         borderRadius: '12px',
@@ -3414,6 +3733,63 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         minHeight: '500px',
         maxHeight: '700px',
       }}>
+        {/* Chat History Dropdown */}
+        {currentUser && chatSessions.length > 0 && (
+          <div style={{ 
+            marginBottom: '16px', 
+            display: 'flex', 
+            gap: '8px', 
+            alignItems: 'center',
+            flexWrap: 'wrap'
+          }}>
+            <select
+              value={currentSessionId || ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  loadSession(e.target.value);
+                }
+              }}
+              style={{
+                flex: 1,
+                minWidth: '200px',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: `1px solid ${THEME.border}`,
+                background: THEME.white,
+                color: THEME.text,
+                fontSize: '14px',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              {chatSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title} ({new Date(session.lastMessageAt).toLocaleDateString()})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleNewChat}
+              style={{
+                padding: '8px 16px',
+                background: THEME.primary,
+                border: 'none',
+                borderRadius: '6px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Plus size={16} />
+              New Chat
+            </button>
+          </div>
+        )}
+        
         {/* Messages */}
         <div style={{
           flex: 1,
@@ -3508,50 +3884,90 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
-            disabled={isLoading || !isAIConfigured()}
-            maxLength={500}
-            rows={2}
-            style={{
-              flex: 1,
-              padding: '12px',
-              border: `2px solid ${THEME.border}`,
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-              resize: 'vertical',
-              minHeight: '50px',
-              maxHeight: '120px',
-            }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading || !isAIConfigured()}
-            style={{
-              padding: '12px 20px',
-              background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
-              border: 'none',
-              borderRadius: '8px',
-              color: THEME.white,
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              height: 'fit-content',
-            }}
-          >
-            <Send size={18} />
-          </button>
-        </div>
+        {/* Input - Text Chat Mode */}
+        {chatMode === 'text' && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
+              disabled={isLoading || !isAIConfigured()}
+              maxLength={500}
+              rows={2}
+              style={{
+                flex: 1,
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+                minHeight: '50px',
+                maxHeight: '120px',
+              }}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading || !isAIConfigured()}
+              style={{
+                padding: '12px 20px',
+                background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                height: 'fit-content',
+              }}
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        )}
+
+        {/* Voice Chat Mode - Recording Button */}
+        {chatMode === 'voice' && (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            padding: '20px'
+          }}>
+            <button
+              onClick={handleVoiceRecordingToggle}
+              disabled={!isVoiceChatInitialized()}
+              style={{
+                width: '80px',
+                height: '80px',
+                borderRadius: '50%',
+                background: isVoiceRecording ? THEME.danger : THEME.primary,
+                border: 'none',
+                color: THEME.white,
+                cursor: isVoiceChatInitialized() ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isVoiceRecording ? '0 4px 12px rgba(220, 53, 69, 0.4)' : '0 4px 12px rgba(0, 86, 164, 0.4)',
+                transition: 'all 0.3s',
+              }}
+            >
+              <Mic size={32} />
+            </button>
+            <div style={{ 
+              marginLeft: '16px', 
+              fontSize: '14px', 
+              color: THEME.textLight 
+            }}>
+              {isVoiceRecording ? 'Recording... Click to stop' : 'Click to start recording'}
+            </div>
+          </div>
+        )}
         {!isAIConfigured() && (
           <div style={{
             marginTop: '8px',

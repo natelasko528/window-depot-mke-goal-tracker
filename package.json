@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@google/genai": "^1.0.0",
     "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.90.1",
     "lucide-react": "^0.263.0",
