@@ -146,6 +146,18 @@ class VoiceChatSession {
   async connect() {
     return new Promise((resolve, reject) => {
       try {
+        // Validate and fix model name - ensure we use the correct native audio model
+        const validModel = this.model === 'gemini-2.5-flash-native-audio-preview-12-2025' 
+          ? this.model 
+          : 'gemini-2.5-flash-native-audio-preview-12-2025';
+        
+        if (this.model !== validModel) {
+          console.warn(`Invalid voice model "${this.model}", using "${validModel}"`);
+          this.model = validModel;
+        }
+
+        console.log('Connecting to Gemini Live API with model:', validModel);
+        
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
 
         webSocket = new WebSocket(wsUrl);
@@ -158,7 +170,7 @@ class VoiceChatSession {
           // Send setup message
           const setupMessage = {
             setup: {
-              model: `models/${this.model}`,
+              model: `models/${validModel}`,
               generationConfig: {
                 responseModalities: ['AUDIO'],
                 speechConfig: {
@@ -175,6 +187,7 @@ class VoiceChatSession {
             },
           };
 
+          console.log('Sending setup message with model:', validModel);
           webSocket.send(JSON.stringify(setupMessage));
           resolve();
         };
@@ -225,7 +238,20 @@ class VoiceChatSession {
           this.onStatusChange('disconnected');
 
           if (event.code !== 1000) {
-            this.onError(`Connection closed: ${event.reason || 'Unknown reason'}`);
+            let errorMessage = `Connection closed: ${event.reason || `Code ${event.code}`}`;
+            
+            // Provide helpful error messages for common issues
+            if (event.reason && event.reason.includes('is not found')) {
+              errorMessage = `Invalid model. The model "${this.model}" is not available. Using correct model now.`;
+            } else if (event.reason && event.reason.includes('invalid argument')) {
+              errorMessage = `Invalid request. Please check your API key and model configuration in Settings.`;
+            } else if (event.code === 1008) {
+              errorMessage = `Model error: The voice model is not supported. Please select a valid model in Settings.`;
+            } else if (event.code === 1007) {
+              errorMessage = `Invalid request parameters. Please check your Settings configuration.`;
+            }
+            
+            this.onError(errorMessage);
           }
         };
       } catch (error) {
