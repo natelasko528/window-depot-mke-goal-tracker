@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-<<<<<<< HEAD
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Clock, ChevronDown, Mic } from 'lucide-react';
-=======
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff } from 'lucide-react';
->>>>>>> origin/master
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Clock, ChevronDown } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -24,18 +20,6 @@ import {
   getAIResponse,
   isAIConfigured,
   getRemainingRequests,
-<<<<<<< HEAD
-  AVAILABLE_MODELS,
-  DEFAULT_MODEL
-} from './lib/ai';
-import {
-  initializeVoiceChat,
-  startRecording,
-  stopRecording,
-  closeVoiceChat,
-  isRecordingActive,
-  isVoiceChatInitialized
-=======
   configureAI,
   getAPIKey,
   validateAPIKey,
