@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -10,6 +10,17 @@ import {
   startSyncInterval, 
   stopSyncInterval 
 } from './lib/sync';
+import {
+  initializePresence,
+  updatePresence,
+  cleanupPresence,
+  getPresenceState
+} from './lib/presence';
+import {
+  getAIResponse,
+  isAIConfigured,
+  getRemainingRequests
+} from './lib/ai';
 
 // ========================================
 // THEME & CONSTANTS
@@ -230,11 +241,13 @@ export default function WindowDepotTracker() {
   const [toast, setToast] = useState(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [rememberUser, setRememberUser] = useState(false);
+  const [activeUsers, setActiveUsers] = useState([]);
   
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
   const initAttempts = useRef(0);
   const subscriptionsRef = useRef([]);
+  const presenceChannelRef = useRef(null);
   
   // ========================================
   // INITIALIZATION & DATA LOADING
@@ -560,6 +573,65 @@ export default function WindowDepotTracker() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialized, isOnline, isSupabaseConfigured]);
+  
+  // ========================================
+  // PRESENCE TRACKING
+  // ========================================
+  
+  useEffect(() => {
+    if (!currentUser || !isInitialized || !isOnline || !isSupabaseConfigured) {
+      return;
+    }
+    
+    // Initialize presence when user is set
+    const setupPresence = async () => {
+      try {
+        const channel = await initializePresence(
+          currentUser.id,
+          currentUser.name,
+          currentUser.role
+        );
+        presenceChannelRef.current = channel;
+        
+        if (channel) {
+          // Set up presence event listeners
+          channel
+            .on('presence', { event: 'sync' }, () => {
+              const activeUsersList = getPresenceState();
+              setActiveUsers(activeUsersList);
+            })
+            .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+              console.log('User joined:', newPresences);
+              const activeUsersList = getPresenceState();
+              setActiveUsers(activeUsersList);
+            })
+            .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+              console.log('User left:', leftPresences);
+              const activeUsersList = getPresenceState();
+              setActiveUsers(activeUsersList);
+            });
+        }
+      } catch (error) {
+        console.error('Failed to initialize presence:', error);
+      }
+    };
+    
+    setupPresence();
+    
+    // Cleanup on unmount or user change
+    return () => {
+      cleanupPresence();
+      presenceChannelRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, isInitialized, isOnline, isSupabaseConfigured]);
+  
+  // Update presence when view changes
+  useEffect(() => {
+    if (currentUser && presenceChannelRef.current) {
+      updatePresence({ currentView: activeView });
+    }
+  }, [activeView, currentUser]);
   
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
@@ -1741,13 +1813,16 @@ export default function WindowDepotTracker() {
       {/* Main Content */}
       <div style={{ padding: '20px' }}>
         {activeView === 'dashboard' && (
-          <Dashboard 
-            currentUser={currentUser}
-            todayStats={todayStats}
-            weekStats={weekStats}
-            onIncrement={handleIncrement}
-            onDecrement={handleDecrement}
-          />
+          <div style={{ display: 'grid', gap: '20px' }}>
+            <Dashboard 
+              currentUser={currentUser}
+              todayStats={todayStats}
+              weekStats={weekStats}
+              onIncrement={handleIncrement}
+              onDecrement={handleDecrement}
+            />
+            <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} />
+          </div>
         )}
         
         {activeView === 'goals' && (
@@ -1800,6 +1875,15 @@ export default function WindowDepotTracker() {
             users={users}
             dailyLogs={dailyLogs}
             appointments={appointments}
+          />
+        )}
+        
+        {activeView === 'chatbot' && (
+          <Chatbot
+            currentUser={currentUser}
+            todayStats={todayStats}
+            weekStats={weekStats}
+            onIncrement={handleIncrement}
           />
         )}
       </div>
@@ -3039,6 +3123,86 @@ function Leaderboard({ leaderboard, currentUser }) {
 }
 
 // ========================================
+// ACTIVE USERS LIST COMPONENT
+// ========================================
+
+function ActiveUsersList({ activeUsers, currentUser }) {
+  return (
+    <div style={{
+      background: THEME.white,
+      borderRadius: '12px',
+      padding: '16px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px', 
+        marginBottom: '12px' 
+      }}>
+        <Users size={20} color={THEME.primary} />
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+          Active Users ({activeUsers.length})
+        </h3>
+      </div>
+      {activeUsers.length === 0 ? (
+        <div style={{
+          padding: '20px',
+          textAlign: 'center',
+          color: THEME.textLight,
+          fontSize: '14px',
+        }}>
+          No other users online
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: '8px' }}>
+          {activeUsers.map(user => (
+            <div key={user.userId} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '8px',
+              background: user.userId === currentUser?.id ? THEME.accent : THEME.secondary,
+              borderRadius: '8px',
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: THEME.primary,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: THEME.white,
+                fontSize: '12px',
+                fontWeight: '600',
+              }}>
+                {user.userName?.[0]?.toUpperCase() || '?'}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                  {user.userName}
+                  {user.userId === currentUser?.id && ' (You)'}
+                </div>
+                <div style={{ fontSize: '12px', color: THEME.textLight }}>
+                  {user.userRole === 'manager' ? '👔 Manager' : '👤 Employee'}
+                </div>
+              </div>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: THEME.success,
+              }} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========================================
 // TEAM VIEW COMPONENT (Manager Only)
 // ========================================
 
@@ -3592,6 +3756,7 @@ function BottomNav({ activeView, onViewChange, isManager }) {
     { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['employee', 'manager'] },
     { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
     { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
+    { id: 'chatbot', label: 'AI Coach', icon: Bot, roles: ['employee', 'manager'] },
     { id: 'team', label: 'Team', icon: Users, roles: ['manager'] },
     { id: 'admin', label: 'Admin', icon: Settings, roles: ['manager'] },
     { id: 'reports', label: 'Reports', icon: TrendingUp, roles: ['manager'] },
