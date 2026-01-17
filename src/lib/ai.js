@@ -151,6 +151,18 @@ export const clearModelsCache = () => {
   modelsCacheTime = 0;
 };
 
+// Available Gemini models (verified as of 2025)
+export const AVAILABLE_MODELS = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default - Fast)' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Balanced)' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Cost-Efficient)' },
+  { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview (Most Powerful)' },
+  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Fast Preview)' },
+];
+
+// Default model
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
+
 // Rate limiting (simple in-memory, consider Redis for production)
 let requestCount = 0;
 let resetTime = Date.now();
@@ -231,7 +243,7 @@ export const isAIConfigured = () => {
 };
 
 // Get AI response with context
-export const getAIResponse = async (message, context = {}) => {
+export const getAIResponse = async (message, context = {}, modelName = DEFAULT_MODEL) => {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Please add your Gemini API key in Settings.');
   }
@@ -239,9 +251,10 @@ export const getAIResponse = async (message, context = {}) => {
   checkRateLimit();
 
   try {
-    // Using the configured model
-    const model = genAI.getGenerativeModel({ model: currentModel });
-
+    // Use provided modelName if valid, otherwise use currentModel
+    // This supports both per-request model selection and global model configuration
+    const modelToUse = modelName && modelName !== DEFAULT_MODEL ? modelName : currentModel;
+    const model = genAI.getGenerativeModel({ model: modelToUse });
     // Build context string
     let contextString = '';
     if (context.currentUser) {

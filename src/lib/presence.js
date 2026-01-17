@@ -2,6 +2,8 @@ import { supabase, isSupabaseConfigured } from './supabase';
 
 let presenceChannel = null;
 let currentUserId = null;
+let initialPresenceData = null;
+let isSubscribed = false;
 
 export const initializePresence = async (userId, userName, userRole) => {
   if (!isSupabaseConfigured || !supabase || !userId) {
@@ -15,6 +17,16 @@ export const initializePresence = async (userId, userName, userRole) => {
   }
   
   currentUserId = userId;
+  isSubscribed = false;
+  
+  // Store initial presence data for tracking after subscription
+  initialPresenceData = {
+    userId,
+    userName,
+    userRole,
+    onlineAt: new Date().toISOString(),
+    currentView: 'dashboard', // Track what page they're on
+  };
   
   // Create presence channel
   presenceChannel = supabase.channel('presence:app', {
@@ -25,16 +37,7 @@ export const initializePresence = async (userId, userName, userRole) => {
     },
   });
 
-  // Track user presence
-  await presenceChannel.track({
-    userId,
-    userName,
-    userRole,
-    onlineAt: new Date().toISOString(),
-    currentView: 'dashboard', // Track what page they're on
-  });
-
-  // Subscribe to presence events
+  // Set up presence event listeners BEFORE subscribing
   presenceChannel
     .on('presence', { event: 'sync' }, () => {
       console.log('Presence sync');
@@ -47,9 +50,23 @@ export const initializePresence = async (userId, userName, userRole) => {
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
+        isSubscribed = true;
         console.log('✅ Presence channel subscribed');
+        
+        // NOW track user presence AFTER subscription is established
+        if (initialPresenceData) {
+          try {
+            await presenceChannel.track(initialPresenceData);
+            console.log('✅ Presence tracking started');
+          } catch (error) {
+            console.error('Error tracking presence:', error);
+          }
+        }
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        isSubscribed = false;
         console.error('❌ Presence subscription failed:', status);
+      } else {
+        isSubscribed = false;
       }
     });
 
@@ -57,11 +74,32 @@ export const initializePresence = async (userId, userName, userRole) => {
 };
 
 export const updatePresence = async (updates) => {
-  if (presenceChannel && currentUserId) {
+  if (!presenceChannel || !currentUserId) {
+    return;
+  }
+  
+  // Wait for subscription if not ready yet
+  if (!isSubscribed) {
+    // Wait up to 5 seconds for subscription
+    const maxWait = 5000;
+    const startTime = Date.now();
+    while (!isSubscribed && (Date.now() - startTime) < maxWait) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (!isSubscribed) {
+      console.warn('Presence update skipped: subscription not ready');
+      return;
+    }
+  }
+  
+  try {
     await presenceChannel.track({
       userId: currentUserId,
       ...updates,
     });
+  } catch (error) {
+    console.error('Error updating presence:', error);
   }
 };
 
@@ -75,6 +113,8 @@ export const cleanupPresence = async () => {
     }
     presenceChannel = null;
     currentUserId = null;
+    initialPresenceData = null;
+    isSubscribed = false;
   }
 };
 
