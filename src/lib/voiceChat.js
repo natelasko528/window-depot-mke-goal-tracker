@@ -10,7 +10,11 @@ let mediaRecorder = null;
 let webSocket = null;
 let audioQueue = [];
 let isPlaying = false;
-let currentModel = 'gemini-2.0-flash-live-001';
+let currentModel = 'gemini-2.5-flash-native-audio-preview-12-2025'; // Native audio model for Live API
+
+// Audio format constants (per Gemini Live API spec)
+const SEND_SAMPLE_RATE = 16000; // 16kHz for input
+const RECEIVE_SAMPLE_RATE = 24000; // 24kHz for output
 
 // Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
 // The models that support bidiGenerateContent will be listed there

@@ -257,8 +257,8 @@ export default function WindowDepotTracker() {
   const [appSettings, setAppSettings] = useState({
     ai: {
       apiKey: '',
-      textModel: 'gemini-2.5-flash',
-      voiceModel: 'gemini-2.0-flash-live-001',
+      textModel: 'gemini-2.0-flash',
+      voiceModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
       voiceName: 'Puck',
       rateLimit: 15,
       voiceChatEnabled: true,
@@ -3448,7 +3448,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
 
     try {
       const session = createVoiceChatSession(apiKey, {
-        model: appSettings?.ai?.voiceModel || 'gemini-2.0-flash-live-001',
+        model: appSettings?.ai?.voiceModel || 'gemini-2.5-flash-native-audio-preview-12-2025',
         voice: appSettings?.ai?.voiceName || 'Puck',
         systemInstruction: `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
 The current user is ${currentUser?.name || 'User'} (${currentUser?.role || 'employee'}).
