@@ -226,6 +226,7 @@ export default function WindowDepotTracker() {
   const [activeView, setActiveView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [toast, setToast] = useState(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [rememberUser, setRememberUser] = useState(false);
@@ -281,19 +282,29 @@ export default function WindowDepotTracker() {
         const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember] = results;
         
         // Use synced data if available, otherwise use local
-        setUsers(syncedData?.users || loadedUsers || []);
+        const finalUsers = syncedData?.users || loadedUsers || [];
+        setUsers(finalUsers);
         setDailyLogs(syncedData?.dailyLogs || loadedLogs || {});
         setAppointments(syncedData?.appointments || loadedAppts || []);
         setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
         
+        // Restore current user from synced users if remembered
         if (shouldRemember && savedUser) {
-          setCurrentUser(savedUser);
+          // Find the user in the synced users array by ID to ensure we have the latest data
+          const foundUser = finalUsers.find(u => u.id === savedUser.id);
+          if (foundUser) {
+            setCurrentUser(foundUser);
+          } else if (savedUser) {
+            // If user not found in synced data, use saved user (might be local-only)
+            setCurrentUser(savedUser);
+          }
         }
         
         // Initialization complete - wait a bit before allowing saves
         await new Promise(resolve => setTimeout(resolve, 500));
         hasInitialized.current = true;
+        setIsInitialized(true); // Trigger real-time subscriptions
         
         showToast('App loaded successfully', 'success');
       } catch (error) {
@@ -306,6 +317,7 @@ export default function WindowDepotTracker() {
         } else {
           showToast('Failed to load data. Starting fresh.', 'error');
           hasInitialized.current = true;
+          setIsInitialized(true);
         }
       } finally {
         setIsLoading(false);
@@ -357,7 +369,12 @@ export default function WindowDepotTracker() {
   // ========================================
   
   useEffect(() => {
-    if (!hasInitialized.current || !isOnline) return;
+    if (!isInitialized || !isOnline) {
+      console.log('Real-time subscriptions: waiting for initialization or offline', { isInitialized, isOnline });
+      return;
+    }
+    
+    console.log('Setting up real-time subscriptions...');
     
     // Subscribe to feed_posts changes
     const feedSubscription = supabase
@@ -365,6 +382,7 @@ export default function WindowDepotTracker() {
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'feed_posts' },
         async (payload) => {
+          console.log('Feed post change received!', payload);
           // Reload feed from Supabase
           const { syncFeedFromSupabase } = await import('./lib/sync');
           const updatedFeed = await syncFeedFromSupabase();
@@ -373,7 +391,9 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Feed posts subscription status:', status);
+      });
     
     // Subscribe to feed_likes changes
     const likesSubscription = supabase
@@ -381,6 +401,7 @@ export default function WindowDepotTracker() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'feed_likes' },
         async (payload) => {
+          console.log('Feed like change received!', payload);
           // Reload feed to get updated likes
           const { syncFeedFromSupabase } = await import('./lib/sync');
           const updatedFeed = await syncFeedFromSupabase();
@@ -389,7 +410,9 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Feed likes subscription status:', status);
+      });
     
     // Subscribe to feed_comments changes
     const commentsSubscription = supabase
@@ -397,6 +420,7 @@ export default function WindowDepotTracker() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'feed_comments' },
         async (payload) => {
+          console.log('Feed comment change received!', payload);
           // Reload feed to get updated comments
           const { syncFeedFromSupabase } = await import('./lib/sync');
           const updatedFeed = await syncFeedFromSupabase();
@@ -405,7 +429,9 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Feed comments subscription status:', status);
+      });
     
     // Subscribe to daily_logs changes
     const dailyLogsSubscription = supabase
@@ -413,6 +439,7 @@ export default function WindowDepotTracker() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'daily_logs' },
         async (payload) => {
+          console.log('Daily log change received!', payload);
           // Reload daily logs from Supabase
           const { syncDailyLogsFromSupabase } = await import('./lib/sync');
           const updatedLogs = await syncDailyLogsFromSupabase();
@@ -421,7 +448,9 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Daily logs subscription status:', status);
+      });
     
     // Subscribe to appointments changes
     const appointmentsSubscription = supabase
@@ -429,6 +458,7 @@ export default function WindowDepotTracker() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'appointments' },
         async (payload) => {
+          console.log('Appointment change received!', payload);
           // Reload appointments from Supabase
           const { syncAppointmentsFromSupabase } = await import('./lib/sync');
           const updatedAppts = await syncAppointmentsFromSupabase();
@@ -437,7 +467,9 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Appointments subscription status:', status);
+      });
     
     // Subscribe to users changes
     const usersSubscription = supabase
@@ -445,18 +477,31 @@ export default function WindowDepotTracker() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'users' },
         async (payload) => {
+          console.log('User change received!', payload);
           // Reload users from Supabase
           const { syncUsersFromSupabase } = await import('./lib/sync');
           const updatedUsers = await syncUsersFromSupabase();
           if (updatedUsers) {
             setUsers(updatedUsers);
+            // If current user was updated, update it too
+            if (currentUser) {
+              const updatedCurrentUser = updatedUsers.find(u => u.id === currentUser.id);
+              if (updatedCurrentUser) {
+                setCurrentUser(updatedCurrentUser);
+              }
+            }
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Users subscription status:', status);
+      });
+    
+    console.log('Real-time subscriptions set up successfully');
     
     // Cleanup subscriptions on unmount
     return () => {
+      console.log('Cleaning up real-time subscriptions');
       feedSubscription.unsubscribe();
       likesSubscription.unsubscribe();
       commentsSubscription.unsubscribe();
@@ -465,7 +510,7 @@ export default function WindowDepotTracker() {
       usersSubscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline]);
+  }, [isInitialized, isOnline]);
   
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
