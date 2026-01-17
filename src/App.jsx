@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Clock, ChevronDown } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -3341,6 +3341,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [remainingRequests, setRemainingRequests] = useState(getRemainingRequests());
+  // eslint-disable-next-line no-unused-vars
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [chatSessions, setChatSessions] = useState([]);
@@ -3348,6 +3349,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
   const [voiceStatus, setVoiceStatus] = useState('disconnected'); // 'disconnected', 'connecting', 'connected', 'ready', 'listening', 'processing'
   const [audioLevel, setAudioLevel] = useState(0);
   const [voiceError, setVoiceError] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const messagesEndRef = useRef(null);
   const saveDebounceRef = useRef(null);
@@ -3409,6 +3411,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
     };
 
     loadChatHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
 
   // Helper function to create new chat session
@@ -3513,6 +3516,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
   }, [messages, currentSessionId, currentUser, saveMessages]);
 
   // Save model preference
+  // eslint-disable-next-line no-unused-vars
   const saveModelPreference = async (model) => {
     try {
       if (currentUser) {
