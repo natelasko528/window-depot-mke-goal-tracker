@@ -3,6 +3,18 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
+// Available Gemini models (verified as of 2025)
+export const AVAILABLE_MODELS = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default - Fast)' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Balanced)' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Cost-Efficient)' },
+  { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview (Most Powerful)' },
+  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Fast Preview)' },
+];
+
+// Default model
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
+
 // Rate limiting (simple in-memory, consider Redis for production)
 let requestCount = 0;
 let resetTime = Date.now();
@@ -39,7 +51,7 @@ export const isAIConfigured = () => {
 };
 
 // Get AI response with context
-export const getAIResponse = async (message, context = {}) => {
+export const getAIResponse = async (message, context = {}, modelName = DEFAULT_MODEL) => {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Please add REACT_APP_GEMINI_API_KEY to your environment variables.');
   }
@@ -47,7 +59,15 @@ export const getAIResponse = async (message, context = {}) => {
   checkRateLimit();
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    // Validate model name - fallback to default if invalid
+    const validModel = AVAILABLE_MODELS.find(m => m.value === modelName);
+    const modelToUse = validModel ? modelName : DEFAULT_MODEL;
+    
+    if (modelToUse !== modelName) {
+      console.warn(`Invalid model "${modelName}", using default: ${modelToUse}`);
+    }
+    
+    const model = genAI.getGenerativeModel({ model: modelToUse });
     
     // Build context string
     let contextString = '';

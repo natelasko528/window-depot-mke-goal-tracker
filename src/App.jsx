@@ -19,7 +19,9 @@ import {
 import {
   getAIResponse,
   isAIConfigured,
-  getRemainingRequests
+  getRemainingRequests,
+  AVAILABLE_MODELS,
+  DEFAULT_MODEL
 } from './lib/ai';
 
 // ========================================
@@ -3259,7 +3261,36 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [remainingRequests, setRemainingRequests] = useState(getRemainingRequests());
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const messagesEndRef = useRef(null);
+
+  // Load saved model preference
+  useEffect(() => {
+    const loadModelPreference = async () => {
+      try {
+        const savedModel = await storage.get(`aiModel_${currentUser?.id}`, DEFAULT_MODEL);
+        if (AVAILABLE_MODELS.find(m => m.value === savedModel)) {
+          setSelectedModel(savedModel);
+        }
+      } catch (error) {
+        console.error('Failed to load model preference:', error);
+      }
+    };
+    if (currentUser) {
+      loadModelPreference();
+    }
+  }, [currentUser]);
+
+  // Save model preference
+  const saveModelPreference = async (model) => {
+    try {
+      if (currentUser) {
+        await storage.set(`aiModel_${currentUser.id}`, model);
+      }
+    } catch (error) {
+      console.error('Failed to save model preference:', error);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -3299,7 +3330,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
         userGoals: currentUser?.goals,
       };
 
-      const response = await getAIResponse(userMessage.content, context);
+      const response = await getAIResponse(userMessage.content, context, selectedModel);
       
       const aiMessage = {
         id: `ai-${Date.now()}`,
@@ -3333,15 +3364,43 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
           AI Coach
         </h2>
-        {isAIConfigured() && (
-          <div style={{ fontSize: '12px', color: THEME.textLight }}>
-            {remainingRequests} requests/min remaining
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isAIConfigured() && (
+            <>
+              <select
+                value={selectedModel}
+                onChange={(e) => {
+                  const newModel = e.target.value;
+                  setSelectedModel(newModel);
+                  saveModelPreference(newModel);
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.white,
+                  color: THEME.text,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {AVAILABLE_MODELS.map(model => (
+                  <option key={model.value} value={model.value}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: '12px', color: THEME.textLight }}>
+                {remainingRequests} requests/min remaining
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div style={{
