@@ -167,7 +167,7 @@ class VoiceChatSession {
           this.isConnected = true;
           this.onStatusChange('connected');
 
-          // Send setup message
+          // Send setup message - validate structure before sending
           const setupMessage = {
             setup: {
               model: `models/${validModel}`,
@@ -187,9 +187,23 @@ class VoiceChatSession {
             },
           };
 
-          console.log('Sending setup message with model:', validModel);
-          webSocket.send(JSON.stringify(setupMessage));
-          resolve();
+          // Validate setup message structure
+          try {
+            const jsonString = JSON.stringify(setupMessage);
+            console.log('Sending setup message with model:', validModel);
+            console.log('Setup message structure:', JSON.stringify(setupMessage, null, 2));
+            
+            // Validate JSON is valid UTF-8
+            if (!/^[\x20-\x7E\s]*$/.test(this.systemInstruction)) {
+              console.warn('System instruction contains non-ASCII characters');
+            }
+            
+            webSocket.send(jsonString);
+            resolve();
+          } catch (error) {
+            console.error('Failed to stringify or send setup message:', error);
+            reject(new Error(`Failed to prepare setup message: ${error.message}`));
+          }
         };
 
         webSocket.onmessage = async (event) => {
@@ -233,22 +247,55 @@ class VoiceChatSession {
         };
 
         webSocket.onclose = (event) => {
-          console.log('WebSocket closed:', event.code, event.reason);
+          console.log('WebSocket closed:', event.code, event.reason, {
+            wasClean: event.wasClean,
+            code: event.code,
+            reason: event.reason,
+          });
           this.isConnected = false;
           this.onStatusChange('disconnected');
 
           if (event.code !== 1000) {
             let errorMessage = `Connection closed: ${event.reason || `Code ${event.code}`}`;
             
-            // Provide helpful error messages for common issues
-            if (event.reason && event.reason.includes('is not found')) {
-              errorMessage = `Invalid model. The model "${this.model}" is not available. Using correct model now.`;
-            } else if (event.reason && event.reason.includes('invalid argument')) {
-              errorMessage = `Invalid request. Please check your API key and model configuration in Settings.`;
-            } else if (event.code === 1008) {
-              errorMessage = `Model error: The voice model is not supported. Please select a valid model in Settings.`;
-            } else if (event.code === 1007) {
-              errorMessage = `Invalid request parameters. Please check your Settings configuration.`;
+            // Provide helpful error messages for common WebSocket close codes
+            // 1007 = Invalid payload data (malformed JSON, wrong encoding)
+            if (event.code === 1007) {
+              errorMessage = `Invalid request format (code 1007). The setup message structure may be incorrect. Please check your API configuration.`;
+              console.error('1007 Error - Possible causes:', {
+                model: this.model,
+                voice: this.voice,
+                systemInstructionLength: this.systemInstruction?.length,
+                apiKeyPresent: !!this.apiKey,
+              });
+            } 
+            // 1008 = Policy violation (model not supported, permission denied)
+            else if (event.code === 1008) {
+              if (event.reason && event.reason.includes('not found')) {
+                errorMessage = `Model "${this.model}" is not found or not supported for voice chat.`;
+              } else {
+                errorMessage = `Request rejected (code 1008). The voice model may not be supported or API key lacks permissions.`;
+              }
+            }
+            // 1001 = Going away (server shutdown/restart)
+            else if (event.code === 1001) {
+              errorMessage = `Connection closed by server. Please try again.`;
+            }
+            // 1006 = Abnormal closure (no close frame received)
+            else if (event.code === 1006) {
+              errorMessage = `Connection lost. Check your internet connection and try again.`;
+            }
+            // Reason-based messages
+            else if (event.reason) {
+              if (event.reason.includes('is not found')) {
+                errorMessage = `Model "${this.model}" is not available for voice chat.`;
+              } else if (event.reason.includes('invalid argument') || event.reason.includes('INVALID_ARGUMENT')) {
+                errorMessage = `Invalid request parameters. Please check your Settings configuration.`;
+              } else if (event.reason.includes('permission') || event.reason.includes('PERMISSION_DENIED')) {
+                errorMessage = `API key does not have permission for voice chat.`;
+              } else if (event.reason.includes('quota') || event.reason.includes('RESOURCE_EXHAUSTED')) {
+                errorMessage = `API quota exceeded. Please try again later.`;
+              }
             }
             
             this.onError(errorMessage);
@@ -264,8 +311,36 @@ class VoiceChatSession {
    * Handle incoming WebSocket responses
    */
   handleResponse(response) {
+    // Handle error responses from server
+    if (response.error) {
+      const error = response.error;
+      console.error('Server error response:', error);
+      
+      let errorMessage = 'Server error';
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.code) {
+        errorMessage = `Error ${error.code}: ${error.message || 'Unknown error'}`;
+      }
+      
+      // Provide context-specific error messages
+      if (error.message?.includes('invalid argument') || error.message?.includes('INVALID_ARGUMENT')) {
+        errorMessage = 'Invalid request parameters. Please check your Settings configuration.';
+      } else if (error.message?.includes('model') && error.message?.includes('not found')) {
+        errorMessage = `Model "${this.model}" is not available for voice chat.`;
+      } else if (error.message?.includes('permission') || error.message?.includes('PERMISSION_DENIED')) {
+        errorMessage = 'API key does not have permission for voice chat.';
+      } else if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+        errorMessage = 'API quota exceeded. Please try again later.';
+      }
+      
+      this.onError(errorMessage);
+      return;
+    }
+
     // Handle setup complete
     if (response.setupComplete) {
+      console.log('Setup complete - voice chat ready');
       this.onStatusChange('ready');
       return;
     }
@@ -302,6 +377,11 @@ class VoiceChatSession {
     // Handle tool calls (future expansion)
     if (response.toolCall) {
       console.log('Tool call received:', response.toolCall);
+    }
+
+    // Log unknown response types for debugging
+    if (!response.setupComplete && !response.serverContent && !response.toolCall && !response.error) {
+      console.warn('Unknown response type received:', Object.keys(response));
     }
   }
 

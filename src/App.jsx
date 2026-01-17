@@ -35,6 +35,7 @@ import {
   isVoiceChatSupported,
   VOICE_OPTIONS
 } from './lib/voiceChat';
+import DebugLogger from './components/DebugLogger';
 
 // ========================================
 // THEME & CONSTANTS
@@ -2015,6 +2016,9 @@ export default function WindowDepotTracker() {
         onViewChange={setActiveView}
         isManager={currentUser.role === 'manager'}
       />
+      
+      {/* Debug Logger */}
+      <DebugLogger />
     </div>
   );
 }
