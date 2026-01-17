@@ -257,8 +257,8 @@ export default function WindowDepotTracker() {
   const [appSettings, setAppSettings] = useState({
     ai: {
       apiKey: '',
-      textModel: 'gemini-2.5-flash',
-      voiceModel: 'gemini-2.0-flash-live-001',
+      textModel: 'gemini-2.0-flash',
+      voiceModel: 'gemini-2.0-flash-exp',
       voiceName: 'Puck',
       rateLimit: 15,
       voiceChatEnabled: true,

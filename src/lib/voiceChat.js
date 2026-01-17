@@ -10,7 +10,7 @@ let mediaRecorder = null;
 let webSocket = null;
 let audioQueue = [];
 let isPlaying = false;
-let currentModel = 'gemini-2.0-flash-live-001';
+let currentModel = 'gemini-2.0-flash-exp'; // Model that supports bidiGenerateContent
 
 // Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
 // The models that support bidiGenerateContent will be listed there
