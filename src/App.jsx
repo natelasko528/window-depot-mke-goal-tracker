@@ -234,6 +234,7 @@ export default function WindowDepotTracker() {
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
   const initAttempts = useRef(0);
+  const subscriptionsRef = useRef([]);
   
   // ========================================
   // INITIALIZATION & DATA LOADING
@@ -369,12 +370,24 @@ export default function WindowDepotTracker() {
   // ========================================
   
   useEffect(() => {
-    if (!isInitialized || !isOnline) {
-      console.log('Real-time subscriptions: waiting for initialization or offline', { isInitialized, isOnline });
+    if (!isInitialized || !isOnline || !isSupabaseConfigured) {
+      console.log('Real-time subscriptions: waiting for initialization, online status, or Supabase config', { 
+        isInitialized, 
+        isOnline, 
+        isSupabaseConfigured 
+      });
       return;
     }
     
     console.log('Setting up real-time subscriptions...');
+    
+    // Clear any existing subscriptions
+    subscriptionsRef.current.forEach(sub => {
+      if (sub && typeof sub.unsubscribe === 'function') {
+        sub.unsubscribe();
+      }
+    });
+    subscriptionsRef.current = [];
     
     // Subscribe to feed_posts changes
     const feedSubscription = supabase
@@ -391,9 +404,15 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Feed posts subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Feed posts subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Feed posts subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(feedSubscription);
     
     // Subscribe to feed_likes changes
     const likesSubscription = supabase
@@ -410,9 +429,15 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Feed likes subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Feed likes subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Feed likes subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(likesSubscription);
     
     // Subscribe to feed_comments changes
     const commentsSubscription = supabase
@@ -429,9 +454,15 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Feed comments subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Feed comments subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Feed comments subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(commentsSubscription);
     
     // Subscribe to daily_logs changes
     const dailyLogsSubscription = supabase
@@ -448,9 +479,15 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Daily logs subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Daily logs subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Daily logs subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(dailyLogsSubscription);
     
     // Subscribe to appointments changes
     const appointmentsSubscription = supabase
@@ -467,9 +504,15 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Appointments subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Appointments subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Appointments subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(appointmentsSubscription);
     
     // Subscribe to users changes
     const usersSubscription = supabase
@@ -493,24 +536,30 @@ export default function WindowDepotTracker() {
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('Users subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Users subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Users subscription failed:', err);
+        }
       });
+    subscriptionsRef.current.push(usersSubscription);
     
     console.log('Real-time subscriptions set up successfully');
     
     // Cleanup subscriptions on unmount
     return () => {
       console.log('Cleaning up real-time subscriptions');
-      feedSubscription.unsubscribe();
-      likesSubscription.unsubscribe();
-      commentsSubscription.unsubscribe();
-      dailyLogsSubscription.unsubscribe();
-      appointmentsSubscription.unsubscribe();
-      usersSubscription.unsubscribe();
+      subscriptionsRef.current.forEach(sub => {
+        if (sub && typeof sub.unsubscribe === 'function') {
+          sub.unsubscribe();
+        }
+      });
+      subscriptionsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized, isOnline]);
+  }, [isInitialized, isOnline, isSupabaseConfigured]);
   
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
