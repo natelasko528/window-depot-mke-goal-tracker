@@ -12,11 +12,8 @@ let audioQueue = [];
 let isPlaying = false;
 let currentModel = 'gemini-2.0-flash-live-001';
 
-// Supported Gemini Live models
-export const LIVE_MODELS = [
-  { id: 'gemini-2.0-flash-live-001', name: 'Gemini 2.0 Flash Live', description: 'Fast, real-time conversational AI' },
-  { id: 'gemini-2.5-flash-preview-native-audio-dialog', name: 'Gemini 2.5 Flash Native Audio', description: 'Enhanced native audio dialog' },
-];
+// Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
+// The models that support bidiGenerateContent will be listed there
 
 // Voice options for Gemini Live
 export const VOICE_OPTIONS = [
@@ -492,7 +489,6 @@ const voiceChatModule = {
   isVoiceChatSupported,
   setVoiceChatModel,
   getVoiceChatModel,
-  LIVE_MODELS,
   VOICE_OPTIONS,
 };
 

@@ -23,12 +23,14 @@ import {
   configureAI,
   getAPIKey,
   validateAPIKey,
-  TEXT_MODELS
+  fetchAvailableModels,
+  clearModelsCache,
+  TEXT_MODELS,
+  LIVE_MODELS_FALLBACK
 } from './lib/ai';
 import {
   createVoiceChatSession,
   isVoiceChatSupported,
-  LIVE_MODELS,
   VOICE_OPTIONS
 } from './lib/voiceChat';
 
@@ -4481,11 +4483,58 @@ function SettingsPage({ settings, onSaveSettings }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [textModels, setTextModels] = useState(TEXT_MODELS);
+  const [liveModels, setLiveModels] = useState(LIVE_MODELS_FALLBACK);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState(null);
 
   // Update local settings when props change
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
+
+  // Fetch available models when API key is available
+  useEffect(() => {
+    const loadModels = async () => {
+      const apiKey = localSettings.ai.apiKey || settings.ai.apiKey;
+      if (apiKey && apiKey.length >= 10) {
+        setIsLoadingModels(true);
+        setModelsError(null);
+        try {
+          const { textModels: fetchedText, liveModels: fetchedLive } = await fetchAvailableModels(apiKey);
+          setTextModels(fetchedText);
+          setLiveModels(fetchedLive);
+          console.log('Loaded models:', { text: fetchedText.length, live: fetchedLive.length });
+        } catch (error) {
+          console.error('Failed to load models:', error);
+          setModelsError('Failed to load models');
+        } finally {
+          setIsLoadingModels(false);
+        }
+      }
+    };
+    loadModels();
+  }, [localSettings.ai.apiKey, settings.ai.apiKey]);
+
+  const handleRefreshModels = async () => {
+    const apiKey = localSettings.ai.apiKey;
+    if (!apiKey || apiKey.length < 10) {
+      setModelsError('Enter a valid API key first');
+      return;
+    }
+    setIsLoadingModels(true);
+    setModelsError(null);
+    clearModelsCache();
+    try {
+      const { textModels: fetchedText, liveModels: fetchedLive } = await fetchAvailableModels(apiKey);
+      setTextModels(fetchedText);
+      setLiveModels(fetchedLive);
+    } catch (error) {
+      setModelsError('Failed to refresh models');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
 
   const handleAISettingChange = (key, value) => {
     setLocalSettings(prev => ({
@@ -4683,6 +4732,40 @@ function SettingsPage({ settings, onSaveSettings }) {
           </p>
         </div>
 
+        {/* Models Header with Refresh */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', color: THEME.textLight }}>
+            {isLoadingModels ? 'Loading models...' : `${textModels.length} text models, ${liveModels.length} live models available`}
+          </div>
+          <button
+            onClick={handleRefreshModels}
+            disabled={isLoadingModels || !localSettings.ai.apiKey}
+            style={{
+              padding: '6px 12px',
+              background: THEME.secondary,
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: THEME.text,
+              cursor: isLoadingModels || !localSettings.ai.apiKey ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isLoadingModels ? 'Loading...' : 'Refresh Models'}
+          </button>
+        </div>
+        {modelsError && (
+          <div style={{
+            marginBottom: '12px',
+            padding: '8px',
+            background: '#F8D7DA',
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: '#721C24',
+          }}>
+            {modelsError}
+          </div>
+        )}
+
         {/* Text Model Selection */}
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
@@ -4693,10 +4776,11 @@ function SettingsPage({ settings, onSaveSettings }) {
             value={localSettings.ai.textModel}
             onChange={(e) => handleAISettingChange('textModel', e.target.value)}
             style={selectStyle}
+            disabled={isLoadingModels}
           >
-            {TEXT_MODELS.map(model => (
+            {textModels.map(model => (
               <option key={model.id} value={model.id}>
-                {model.name} - {model.description}
+                {model.name} {model.description ? `- ${model.description}` : ''}
               </option>
             ))}
           </select>
@@ -4706,19 +4790,29 @@ function SettingsPage({ settings, onSaveSettings }) {
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
             <Mic size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-            Voice Chat Model
+            Voice Chat Model (Live API)
           </label>
           <select
             value={localSettings.ai.voiceModel}
             onChange={(e) => handleAISettingChange('voiceModel', e.target.value)}
             style={selectStyle}
+            disabled={isLoadingModels}
           >
-            {LIVE_MODELS.map(model => (
-              <option key={model.id} value={model.id}>
-                {model.name} - {model.description}
-              </option>
-            ))}
+            {liveModels.length > 0 ? (
+              liveModels.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name} {model.description ? `- ${model.description}` : ''}
+                </option>
+              ))
+            ) : (
+              <option value="">No live models available</option>
+            )}
           </select>
+          {liveModels.length === 0 && (
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.warning }}>
+              No models with bidiGenerateContent support found. Voice chat may not work.
+            </p>
+          )}
         </div>
 
         {/* Voice Selection */}

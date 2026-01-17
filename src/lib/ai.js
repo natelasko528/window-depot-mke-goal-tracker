@@ -5,16 +5,138 @@ let API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
 let genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
 // Current model configuration
-let currentModel = 'gemini-2.5-flash';
+let currentModel = 'gemini-2.0-flash';
 
-// Available Gemini models for text chat
+// Cache for fetched models
+let cachedTextModels = null;
+let cachedLiveModels = null;
+let modelsCacheTime = 0;
+const MODELS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Fallback models if API fetch fails
 export const TEXT_MODELS = [
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast and efficient for most tasks' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable for complex tasks' },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Previous generation, stable' },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Lightweight and fast' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Previous generation pro model' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast and efficient' },
+  { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', description: 'Lightweight version' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Previous generation' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Pro model' },
 ];
+
+// Fallback live models
+export const LIVE_MODELS_FALLBACK = [
+  { id: 'gemini-2.0-flash-live-001', name: 'Gemini 2.0 Flash Live', description: 'Real-time voice' },
+];
+
+/**
+ * Fetch available models from the Gemini API
+ * @param {string} apiKey - The API key to use
+ * @returns {Promise<{textModels: Array, liveModels: Array}>}
+ */
+export const fetchAvailableModels = async (apiKey = API_KEY) => {
+  if (!apiKey) {
+    return { textModels: TEXT_MODELS, liveModels: LIVE_MODELS_FALLBACK };
+  }
+
+  // Check cache
+  const now = Date.now();
+  if (cachedTextModels && cachedLiveModels && (now - modelsCacheTime) < MODELS_CACHE_DURATION) {
+    return { textModels: cachedTextModels, liveModels: cachedLiveModels };
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models = data.models || [];
+
+    // Filter and categorize models
+    const textModels = [];
+    const liveModels = [];
+
+    for (const model of models) {
+      const modelId = model.name.replace('models/', '');
+      const displayName = model.displayName || modelId;
+      const description = model.description || '';
+      const supportedMethods = model.supportedGenerationMethods || [];
+
+      // Check if model supports text generation (generateContent)
+      if (supportedMethods.includes('generateContent')) {
+        // Skip embedding models and other non-chat models
+        if (!modelId.includes('embedding') && !modelId.includes('aqa') && !modelId.includes('imagen')) {
+          textModels.push({
+            id: modelId,
+            name: displayName,
+            description: description.substring(0, 60) + (description.length > 60 ? '...' : ''),
+            inputTokenLimit: model.inputTokenLimit,
+            outputTokenLimit: model.outputTokenLimit,
+          });
+        }
+      }
+
+      // Check if model supports live/bidirectional streaming (bidiGenerateContent)
+      if (supportedMethods.includes('bidiGenerateContent')) {
+        liveModels.push({
+          id: modelId,
+          name: displayName,
+          description: description.substring(0, 60) + (description.length > 60 ? '...' : ''),
+        });
+      }
+    }
+
+    // Sort models - newer versions first
+    const sortModels = (a, b) => {
+      // Prioritize 2.5 > 2.0 > 1.5
+      const getVersion = (id) => {
+        if (id.includes('2.5')) return 3;
+        if (id.includes('2.0')) return 2;
+        if (id.includes('1.5')) return 1;
+        return 0;
+      };
+      const versionDiff = getVersion(b.id) - getVersion(a.id);
+      if (versionDiff !== 0) return versionDiff;
+
+      // Then prioritize flash > pro > others
+      const getType = (id) => {
+        if (id.includes('flash') && !id.includes('lite')) return 2;
+        if (id.includes('pro')) return 1;
+        return 0;
+      };
+      return getType(b.id) - getType(a.id);
+    };
+
+    textModels.sort(sortModels);
+    liveModels.sort(sortModels);
+
+    // Cache results
+    cachedTextModels = textModels.length > 0 ? textModels : TEXT_MODELS;
+    cachedLiveModels = liveModels.length > 0 ? liveModels : LIVE_MODELS_FALLBACK;
+    modelsCacheTime = now;
+
+    console.log(`Fetched ${textModels.length} text models and ${liveModels.length} live models`);
+
+    return {
+      textModels: cachedTextModels,
+      liveModels: cachedLiveModels
+    };
+  } catch (error) {
+    console.error('Failed to fetch models:', error);
+    return { textModels: TEXT_MODELS, liveModels: LIVE_MODELS_FALLBACK };
+  }
+};
+
+/**
+ * Clear the models cache to force a refresh
+ */
+export const clearModelsCache = () => {
+  cachedTextModels = null;
+  cachedLiveModels = null;
+  modelsCacheTime = 0;
+};
 
 // Rate limiting (simple in-memory, consider Redis for production)
 let requestCount = 0;
@@ -214,7 +336,10 @@ const aiModule = {
   getAIConfig,
   getAPIKey,
   validateAPIKey,
+  fetchAvailableModels,
+  clearModelsCache,
   TEXT_MODELS,
+  LIVE_MODELS_FALLBACK,
 };
 
 export default aiModule;
