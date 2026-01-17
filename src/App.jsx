@@ -4143,67 +4143,6 @@ Keep responses conversational and concise for voice interaction.`,
             </div>
           </div>
         )}
-
-        {/* Text Input (only in text mode) */}
-        {chatMode === 'text' && (
-          <>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "Configure API key in Settings"}
-                disabled={isLoading || !isAIConfigured()}
-                maxLength={500}
-                rows={2}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  border: `2px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontFamily: 'inherit',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  minHeight: '50px',
-                  maxHeight: '120px',
-                }}
-              />
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading || !isAIConfigured()}
-                style={{
-                  padding: '12px 20px',
-                  background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: THEME.white,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  height: 'fit-content',
-                }}
-              >
-                <Send size={18} />
-              </button>
-            </div>
-            {!isAIConfigured() && (
-              <div style={{
-                marginTop: '8px',
-                padding: '8px',
-                background: THEME.warning,
-                borderRadius: '6px',
-                fontSize: '12px',
-                color: THEME.text,
-              }}>
-                Configure your Gemini API key in Settings to enable AI features
-              </div>
-            )}
-          </>
-        )}
       </div>
 
       {/* Role-Playing Prompts */}

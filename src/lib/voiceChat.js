@@ -179,12 +179,37 @@ class VoiceChatSession {
           resolve();
         };
 
-        webSocket.onmessage = (event) => {
+        webSocket.onmessage = async (event) => {
           try {
-            const response = JSON.parse(event.data);
+            let messageData;
+            
+            // Handle different message types: string, Blob, or ArrayBuffer
+            if (typeof event.data === 'string') {
+              // Text message - parse directly
+              messageData = event.data;
+            } else if (event.data instanceof Blob) {
+              // Blob message - convert to text first
+              messageData = await event.data.text();
+            } else if (event.data instanceof ArrayBuffer) {
+              // ArrayBuffer - convert to text via TextDecoder
+              const decoder = new TextDecoder();
+              messageData = decoder.decode(event.data);
+            } else {
+              // Fallback: try to convert to string
+              messageData = String(event.data);
+            }
+            
+            // Parse JSON after ensuring we have a string
+            const response = JSON.parse(messageData);
             this.handleResponse(response);
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            console.error('Error parsing WebSocket message:', error, {
+              dataType: typeof event.data,
+              isBlob: event.data instanceof Blob,
+              isArrayBuffer: event.data instanceof ArrayBuffer,
+              errorMessage: error.message
+            });
+            // Don't throw - allow connection to continue for other messages
           }
         };
 
