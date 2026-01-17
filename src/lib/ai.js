@@ -47,8 +47,9 @@ export const getAIResponse = async (message, context = {}) => {
   checkRateLimit();
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-    
+    // Using gemini-2.5-flash for better stability and future compatibility
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
     // Build context string
     let contextString = '';
     if (context.currentUser) {
@@ -73,10 +74,30 @@ export const getAIResponse = async (message, context = {}) => {
     return text;
   } catch (error) {
     console.error('AI request failed:', error);
-    if (error.message.includes('Rate limit')) {
+
+    // Provide specific error messages for common failure scenarios
+    if (error.message?.includes('Rate limit') || error.message?.includes('rate_limit')) {
       throw error;
     }
-    throw new Error('Failed to get AI response. Please try again.');
+
+    if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
+      throw new Error('Invalid API key. Please check your REACT_APP_GEMINI_API_KEY configuration.');
+    }
+
+    if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error('API quota exceeded. Please try again later or contact support.');
+    }
+
+    if (error.message?.includes('network') || error.message?.includes('fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    }
+
+    if (error.message?.includes('model not found') || error.message?.includes('NOT_FOUND')) {
+      throw new Error('AI model unavailable. Please contact support.');
+    }
+
+    // Generic fallback with original error context
+    throw new Error(`Failed to get AI response: ${error.message || 'Unknown error'}`);
   }
 };
 
