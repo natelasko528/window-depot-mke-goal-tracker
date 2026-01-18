@@ -84,32 +84,42 @@ const arrayBufferToBase64 = (buffer) => {
  * Play audio from PCM data
  */
 const playAudio = async (pcmData) => {
-  const ctx = initAudioContext();
+  console.log('Playing audio chunk:', { length: pcmData.byteLength });
+  try {
+    const ctx = initAudioContext();
 
-  // Resume if suspended
-  if (ctx.state === 'suspended') {
-    await ctx.resume();
+    // Resume if suspended
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    // Convert PCM to AudioBuffer (16-bit PCM, 24kHz, mono)
+    const samples = new Int16Array(pcmData);
+    const floatSamples = new Float32Array(samples.length);
+
+    for (let i = 0; i < samples.length; i++) {
+      floatSamples[i] = samples[i] / 32768;
+    }
+
+    const audioBuffer = ctx.createBuffer(1, floatSamples.length, 24000);
+    audioBuffer.copyToChannel(floatSamples, 0);
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+
+    console.log('Audio playback started successfully');
+    return new Promise((resolve) => {
+      source.onended = () => {
+        console.log('Audio playback completed');
+        resolve();
+      };
+      source.start();
+    });
+  } catch (error) {
+    console.error('Audio playback error:', error);
+    throw error;
   }
-
-  // Convert PCM to AudioBuffer (16-bit PCM, 24kHz, mono)
-  const samples = new Int16Array(pcmData);
-  const floatSamples = new Float32Array(samples.length);
-
-  for (let i = 0; i < samples.length; i++) {
-    floatSamples[i] = samples[i] / 32768;
-  }
-
-  const audioBuffer = ctx.createBuffer(1, floatSamples.length, 24000);
-  audioBuffer.copyToChannel(floatSamples, 0);
-
-  const source = ctx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(ctx.destination);
-
-  return new Promise((resolve) => {
-    source.onended = resolve;
-    source.start();
-  });
 };
 
 /**
@@ -489,6 +499,15 @@ class VoiceChatSession {
    * Handle incoming WebSocket responses
    */
   handleResponse(response) {
+    // Log all responses for debugging
+    console.log('WebSocket response received:', {
+      timestamp: new Date().toISOString(),
+      hasSetupComplete: !!response.setupComplete,
+      hasServerContent: !!response.serverContent,
+      hasInputTranscript: !!response.inputTranscript,
+      keys: Object.keys(response)
+    });
+
     // Handle error responses from server
     if (response.error) {
       const error = response.error;
@@ -551,14 +570,23 @@ class VoiceChatSession {
       return;
     }
 
+    // Check for input transcript at top-level (user speech transcription)
+    if (response.inputTranscript?.text) {
+      console.log('Input transcription received (top-level):', response.inputTranscript.text);
+      this.onTranscript(response.inputTranscript.text, 'user');
+    }
+
     // Handle server content (audio response)
     if (response.serverContent) {
       const content = response.serverContent;
 
-      // Check for input transcript (user speech transcription)
+      // Check for input transcript in serverContent (user speech transcription)
       if (content.inputTranscript) {
-        const transcript = content.inputTranscript.text || content.inputTranscript;
+        const transcript = typeof content.inputTranscript === 'string' 
+          ? content.inputTranscript 
+          : content.inputTranscript.text;
         if (transcript && typeof transcript === 'string' && transcript.trim()) {
+          console.log('Input transcription received (serverContent):', transcript);
           this.onTranscript(transcript, 'user');
         }
       }
@@ -568,15 +596,28 @@ class VoiceChatSession {
         const parts = content.modelTurn.parts || [];
 
         for (const part of parts) {
-          // Handle audio data
-          if (part.inlineData && part.inlineData.mimeType === 'audio/pcm') {
+          // Handle audio data - allow variations of PCM MIME types
+          if (part.inlineData && (part.inlineData.mimeType === 'audio/pcm' || 
+              part.inlineData.mimeType?.startsWith('audio/pcm'))) {
+            console.log('Audio chunk received:', {
+              mimeType: part.inlineData.mimeType,
+              dataLength: part.inlineData.data?.length,
+              queueLength: audioQueue.length
+            });
             const audioData = base64ToArrayBuffer(part.inlineData.data);
             audioQueue.push(audioData);
             processAudioQueue();
+          } else if (part.inlineData?.mimeType?.includes('audio')) {
+            // Log any other audio formats for debugging
+            console.log('Audio part received (unexpected format):', {
+              mimeType: part.inlineData.mimeType,
+              dataSize: part.inlineData.data?.length
+            });
           }
 
           // Handle text transcript (AI speech transcription)
           if (part.text) {
+            console.log('AI text transcript received:', part.text.substring(0, 100));
             this.onTranscript(part.text, 'assistant');
           }
         }
@@ -608,6 +649,7 @@ class VoiceChatSession {
     }
 
     try {
+      console.log('Starting microphone capture...');
       // Get microphone access
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -626,6 +668,12 @@ class VoiceChatSession {
         });
       }
       const ctx = captureContext;
+      
+      console.log('Audio context sample rate:', ctx.sampleRate);
+      console.log('Audio input configuration:', {
+        channels: mediaStream.getAudioTracks()[0]?.getSettings(),
+        trackLabel: mediaStream.getAudioTracks()[0]?.label
+      });
       
       // Create source and analyser for audio level monitoring
       const source = ctx.createMediaStreamSource(mediaStream);
@@ -714,6 +762,12 @@ class VoiceChatSession {
     if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
       return;
     }
+
+    console.log('Sending audio chunk:', {
+      timestamp: new Date().toISOString(),
+      base64Length: base64Audio.length,
+      mimeType: 'audio/pcm;rate=16000'
+    });
 
     const message = {
       realtimeInput: {

@@ -3351,6 +3351,102 @@ function ActiveUsersList({ activeUsers, currentUser }) {
 // CHATBOT COMPONENT WITH VOICE CHAT
 // ========================================
 
+/**
+ * Format markdown text to JSX elements
+ * Handles: **bold**, *italic*, `code`, ## headers
+ */
+const formatMarkdown = (text) => {
+  if (!text || typeof text !== 'string') return text;
+
+  // Process line by line to handle headers
+  const lines = text.split('\n');
+  
+  return lines.map((line, lineIndex) => {
+    if (!line.trim()) return <br key={`line-${lineIndex}`} />;
+
+    // Check for headers
+    if (line.startsWith('### ')) {
+      return <h3 key={`line-${lineIndex}`} style={{ fontSize: '16px', fontWeight: '600', marginTop: '8px', marginBottom: '4px' }}>{formatInlineMarkdown(line.substring(4))}</h3>;
+    }
+    if (line.startsWith('## ')) {
+      return <h2 key={`line-${lineIndex}`} style={{ fontSize: '18px', fontWeight: '700', marginTop: '10px', marginBottom: '6px' }}>{formatInlineMarkdown(line.substring(3))}</h2>;
+    }
+    if (line.startsWith('# ')) {
+      return <h1 key={`line-${lineIndex}`} style={{ fontSize: '20px', fontWeight: '700', marginTop: '12px', marginBottom: '8px' }}>{formatInlineMarkdown(line.substring(2))}</h1>;
+    }
+
+    // Regular line with inline formatting
+    return <div key={`line-${lineIndex}`}>{formatInlineMarkdown(line)}</div>;
+  });
+};
+
+/**
+ * Format inline markdown: **bold**, *italic*, `code`
+ */
+const formatInlineMarkdown = (text) => {
+  if (!text) return text;
+
+  const parts = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining.length > 0) {
+    // Find the earliest markdown pattern
+    let minIndex = Infinity;
+    let match = null;
+    let type = null;
+
+    // Check for **bold**
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    if (boldMatch && boldMatch.index < minIndex) {
+      minIndex = boldMatch.index;
+      match = boldMatch;
+      type = 'bold';
+    }
+
+    // Check for *italic* (not **)
+    const italicMatch = remaining.match(/(?<!\*)\*([^*]+?)\*(?!\*)/);
+    if (italicMatch && italicMatch.index < minIndex) {
+      minIndex = italicMatch.index;
+      match = italicMatch;
+      type = 'italic';
+    }
+
+    // Check for `code`
+    const codeMatch = remaining.match(/`([^`]+?)`/);
+    if (codeMatch && codeMatch.index < minIndex) {
+      minIndex = codeMatch.index;
+      match = codeMatch;
+      type = 'code';
+    }
+
+    if (match && type) {
+      // Add text before match
+      if (minIndex > 0) {
+        parts.push(remaining.substring(0, minIndex));
+      }
+
+      // Add formatted match
+      if (type === 'bold') {
+        parts.push(<strong key={key++}>{match[1]}</strong>);
+      } else if (type === 'italic') {
+        parts.push(<em key={key++}>{match[1]}</em>);
+      } else if (type === 'code') {
+        parts.push(<code key={key++} style={{ fontFamily: 'monospace', background: 'rgba(0,0,0,0.1)', padding: '2px 4px', borderRadius: '3px' }}>{match[1]}</code>);
+      }
+
+      // Update remaining
+      remaining = remaining.substring(minIndex + match[0].length);
+    } else {
+      // No more matches, add remaining text
+      parts.push(remaining);
+      break;
+    }
+  }
+
+  return parts.length > 0 ? parts : text;
+};
+
 function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings }) {
   const [messages, setMessages] = useState([
     {
@@ -4003,8 +4099,8 @@ Keep responses conversational and concise for voice interaction.`,
                     Voice
                   </div>
                 )}
-                <div style={{ fontSize: '14px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                  {message.content}
+                <div style={{ fontSize: '14px', lineHeight: '1.5' }}>
+                  {formatMarkdown(message.content)}
                 </div>
                 {message.isError && (
                   <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '4px' }}>
