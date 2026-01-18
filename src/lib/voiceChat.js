@@ -139,19 +139,20 @@ const FALLBACK_MODELS = [
 
 const validateModel = (model) => {
   if (!model || typeof model !== 'string') {
-    return 'gemini-2.0-flash-exp'; // Stable fallback model
+    return 'gemini-2.5-flash-native-audio-preview-12-2025'; // Valid Live API model
   }
   // Check if it's a valid live model
   const validLiveModels = [
+    'gemini-2.5-flash-native-audio-preview-12-2025',
     'gemini-2.0-flash-exp',
     'gemini-1.5-pro'
   ];
   if (validLiveModels.includes(model)) {
     return model;
   }
-  // Default to stable model if unknown
-  console.warn(`Model "${model}" not in known valid list, using "gemini-2.0-flash-exp"`);
-  return 'gemini-2.0-flash-exp';
+  // Default to valid Live API model if unknown
+  console.warn(`Model "${model}" not in known valid list, using "gemini-2.5-flash-native-audio-preview-12-2025"`);
+  return 'gemini-2.5-flash-native-audio-preview-12-2025';
 };
 
 /**
@@ -659,6 +660,7 @@ class VoiceChatSession {
 
   /**
    * Send audio data to the server
+   * Uses correct realtimeInput.audio format per Gemini Live API spec
    */
   sendAudio(base64Audio) {
     if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
@@ -667,12 +669,10 @@ class VoiceChatSession {
 
     const message = {
       realtimeInput: {
-        mediaChunks: [
-          {
-            mimeType: 'audio/webm;codecs=opus',
-            data: base64Audio,
-          },
-        ],
+        audio: {
+          data: base64Audio,
+          mimeType: 'audio/webm;codecs=opus',
+        },
       },
     };
 

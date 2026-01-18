@@ -71,12 +71,10 @@ webSocket.onmessage = (event) => {
 ```javascript
 const message = {
   realtimeInput: {
-    mediaChunks: [
-      {
-        mimeType: 'audio/webm;codecs=opus',
-        data: base64AudioData,
-      },
-    ],
+    audio: {
+      data: base64AudioData,
+      mimeType: 'audio/webm;codecs=opus',
+    },
   },
 };
 
