@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
 import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -2093,6 +2093,7 @@ export default function WindowDepotTracker() {
               weekStats={weekStats}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
+              dailyLogs={dailyLogs}
               theme={currentTheme}
             />
             <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} theme={currentTheme} />
@@ -2479,12 +2480,194 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // DASHBOARD COMPONENT
 // ========================================
 
-function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, theme }) {
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme }) {
   const THEME = theme;
   const [celebratingCategory, setCelebratingCategory] = useState(null);
-  
+  const [undoHistory, setUndoHistory] = useState([]);
+
+  // ========================================
+  // STREAK CALCULATOR
+  // ========================================
+
+  const calculateStreaks = useMemo(() => {
+    if (!currentUser || !dailyLogs) {
+      return { currentStreak: 0, bestStreak: 0 };
+    }
+
+    const today = getToday();
+    const dates = Object.keys(dailyLogs).filter(date => dailyLogs[date][currentUser.id]).sort().reverse();
+
+    let currentStreak = 0;
+    let bestStreak = 0;
+    let tempStreak = 0;
+
+    // Check consecutive days starting from today
+    for (let i = 0; i < dates.length; i++) {
+      const dateStr = dates[i];
+      const dayLogs = dailyLogs[dateStr]?.[currentUser.id];
+
+      if (!dayLogs) continue;
+
+      const allGoalsMet =
+        (dayLogs.reviews || 0) >= currentUser.goals.reviews &&
+        (dayLogs.demos || 0) >= currentUser.goals.demos &&
+        (dayLogs.callbacks || 0) >= currentUser.goals.callbacks;
+
+      if (allGoalsMet) {
+        tempStreak++;
+        // Check if this is consecutive from today
+        if (i === 0 || isConsecutiveDate(dateStr, dates[i - 1])) {
+          currentStreak = tempStreak;
+        }
+        bestStreak = Math.max(bestStreak, tempStreak);
+      } else {
+        tempStreak = 0;
+      }
+    }
+
+    return { currentStreak, bestStreak };
+  }, [currentUser, dailyLogs]);
+
+  const isConsecutiveDate = (date1, date2) => {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    const diffTime = Math.abs(d2 - d1);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 1;
+  };
+
+  // ========================================
+  // UNDO HISTORY MANAGEMENT
+  // ========================================
+
+  const addToHistory = useCallback((action) => {
+    const timestamp = Date.now();
+    setUndoHistory(prev => {
+      const newHistory = [{ ...action, timestamp }, ...prev];
+      return newHistory.slice(0, 5); // Keep only last 5
+    });
+  }, []);
+
+  const performUndo = useCallback(() => {
+    if (undoHistory.length === 0) return;
+
+    const lastAction = undoHistory[0];
+    const { categoryId, type } = lastAction;
+
+    if (type === 'increment') {
+      onDecrement(categoryId);
+    } else if (type === 'decrement') {
+      onIncrement(categoryId);
+    }
+
+    setUndoHistory(prev => prev.slice(1));
+  }, [undoHistory, onIncrement, onDecrement]);
+
+  // ========================================
+  // PACE INDICATOR
+  // ========================================
+
+  const paceIndicator = useMemo(() => {
+    const weekStart = getWeekStart();
+    const today = getToday();
+    const daysInWeek = Math.ceil((new Date(today) - new Date(weekStart)) / (1000 * 60 * 60 * 24)) + 1;
+    const weekProgress = daysInWeek / 7;
+
+    const messages = [];
+
+    CATEGORIES.forEach(category => {
+      const weekCount = weekStats[category.id] || 0;
+      const weekGoal = currentUser.goals[category.id] * 7;
+      const paceGoal = weekGoal * weekProgress;
+
+      if (weekCount >= paceGoal + currentUser.goals[category.id]) {
+        messages.push({ category: category.name, status: 'ahead', text: `Ahead of pace on ${category.name}!` });
+      } else if (weekCount < paceGoal - currentUser.goals[category.id]) {
+        const needed = Math.ceil((weekGoal - weekCount) / (8 - daysInWeek));
+        messages.push({ category: category.name, status: 'behind', text: `Need ${needed} more ${category.name.toLowerCase()}/day` });
+      } else {
+        messages.push({ category: category.name, status: 'on-track', text: `On track with ${category.name}!` });
+      }
+    });
+
+    return messages;
+  }, [currentUser, weekStats]);
+
+  // ========================================
+  // WEEK PROGRESS MINI-CHART DATA
+  // ========================================
+
+  const last7Days = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const dayLogs = dailyLogs[dateStr]?.[currentUser.id];
+      const total = (dayLogs?.reviews || 0) + (dayLogs?.demos || 0) + (dayLogs?.callbacks || 0);
+      days.push({
+        date: dateStr,
+        name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        total: total,
+      });
+    }
+    return days;
+  }, [currentUser, dailyLogs]);
+
+  const maxDay = Math.max(...last7Days.map(d => d.total), 1);
+
+  // ========================================
+  // GOAL INSIGHTS
+  // ========================================
+
+  const goalInsights = useMemo(() => {
+    const insights = [];
+    const now = new Date();
+    const hour = now.getHours();
+
+    // Time of day insights
+    if (hour < 12 && weekStats.reviews < currentUser.goals.reviews * 2) {
+      insights.push("You're usually more productive in the morning - start strong!");
+    } else if (hour >= 14 && hour < 17 && todayStats.reviews === 0) {
+      insights.push("Afternoon slump? Time to get some reviews done!");
+    }
+
+    // Category performance
+    const reviewRatio = todayStats.reviews / currentUser.goals.reviews;
+    const demoRatio = todayStats.demos / currentUser.goals.demos;
+    const callbackRatio = todayStats.callbacks / currentUser.goals.callbacks;
+
+    if (demoRatio < 0.5 && reviewRatio > 0.8) {
+      insights.push("You're crushing reviews! Schedule more demos to follow up.");
+    }
+
+    if (callbackRatio < 0.3 && weekStats.callbacks > 0) {
+      insights.push("Callbacks are trailing. Consider a callback blitz!");
+    }
+
+    if (reviewRatio >= 1 && demoRatio >= 1 && callbackRatio >= 1) {
+      insights.push("Excellent balance across all categories today!");
+    }
+
+    // Weekly momentum
+    if (last7Days.length >= 3) {
+      const recentAvg = last7Days.slice(-3).reduce((sum, d) => sum + d.total, 0) / 3;
+      const earlierAvg = last7Days.slice(0, 3).reduce((sum, d) => sum + d.total, 0) / 3;
+
+      if (recentAvg > earlierAvg * 1.2) {
+        insights.push("Great momentum this week! Keep the energy high!");
+      } else if (recentAvg < earlierAvg * 0.8 && earlierAvg > 0) {
+        insights.push("Energy is dipping. Time to refocus!");
+      }
+    }
+
+    return insights.length > 0 ? insights : ["Keep pushing towards your goals!"];
+  }, [currentUser, todayStats, weekStats, last7Days]);
+
   const handleIncrement = (categoryId) => {
     onIncrement(categoryId);
+    addToHistory({ categoryId, type: 'increment' });
+
     const newCount = (todayStats[categoryId] || 0) + 1;
     const goal = currentUser.goals[categoryId];
     if (newCount >= goal) {
@@ -2492,19 +2675,24 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       setTimeout(() => setCelebratingCategory(null), 2000);
     }
   };
-  
+
+  const handleDecrement = (categoryId) => {
+    onDecrement(categoryId);
+    addToHistory({ categoryId, type: 'decrement' });
+  };
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
+      <h2 style={{
+        margin: '0 0 20px 0',
+        fontSize: '24px',
+        fontWeight: '700',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
         Today's Progress
       </h2>
-      
+
       <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
         {CATEGORIES.map((category, index) => {
           const count = todayStats[category.id] || 0;
@@ -2513,13 +2701,13 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
           const Icon = category.icon;
           const isGoalReached = count >= goal;
           const isCelebrating = celebratingCategory === category.id;
-          
+
           // Determine gradient based on category
           let gradient = category.color;
           if (category.id === 'reviews') gradient = THEME.gradients.warning;
           else if (category.id === 'demos') gradient = THEME.gradients.success;
           else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
-          
+
           return (
             <div
               key={category.id}
@@ -2550,17 +2738,17 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   <Icon size={26} color={THEME.white} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ 
-                    fontSize: '16px', 
-                    fontWeight: '600', 
+                  <div style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
                     color: THEME.text,
                     fontFamily: 'var(--font-body)',
                   }}>
                     {category.name}
                   </div>
-                  <div style={{ 
-                    fontSize: '28px', 
-                    fontWeight: '700', 
+                  <div style={{
+                    fontSize: '28px',
+                    fontWeight: '700',
                     background: gradient,
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
@@ -2580,7 +2768,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   </div>
                 )}
               </div>
-              
+
               <div style={{
                 height: '14px',
                 background: THEME.secondary,
@@ -2598,10 +2786,10 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   boxShadow: progress >= 100 ? `0 0 12px ${category.color}40` : 'none',
                 }} />
               </div>
-              
+
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
-                  onClick={() => onDecrement(category.id)}
+                  onClick={() => handleDecrement(category.id)}
                   disabled={count === 0}
                   onMouseDown={(e) => {
                     e.currentTarget.style.transform = 'scale(0.95)';
@@ -2662,32 +2850,173 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
           );
         })}
       </div>
-      
-      <h3 style={{ 
-        margin: '0 0 16px 0', 
-        fontSize: '20px', 
-        fontWeight: '600', 
+
+      <div style={{ display: 'grid', gap: '20px', marginBottom: '32px' }}>
+        {/* Streak Counter */}
+        <div style={{
+          background: 'linear-gradient(135deg, #FF6B6B 0%, #FF8E72 100%)',
+          borderRadius: '16px',
+          padding: '24px',
+          boxShadow: THEME.shadows.md,
+          color: THEME.white,
+          textAlign: 'center',
+        }}>
+          <div style={{
+            fontSize: '14px',
+            fontWeight: '600',
+            opacity: 0.9,
+            marginBottom: '8px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+          }}>
+            Current Streak
+          </div>
+          <div style={{
+            fontSize: '48px',
+            fontWeight: '700',
+            marginBottom: '12px',
+            fontFamily: 'var(--font-mono)',
+          }}>
+            🔥 {calculateStreaks.currentStreak}
+          </div>
+          <div style={{
+            fontSize: '14px',
+            opacity: 0.85,
+          }}>
+            {calculateStreaks.currentStreak > 0
+              ? `${calculateStreaks.currentStreak} days meeting all goals!`
+              : 'Start your streak today!'}
+          </div>
+          {calculateStreaks.bestStreak > calculateStreaks.currentStreak && (
+            <div style={{
+              fontSize: '13px',
+              marginTop: '12px',
+              opacity: 0.75,
+              fontStyle: 'italic',
+            }}>
+              Best streak: {calculateStreaks.bestStreak} days
+            </div>
+          )}
+        </div>
+
+        {/* Undo Button & History */}
+        {undoHistory.length > 0 && (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '16px',
+            padding: '16px 20px',
+            boxShadow: THEME.shadows.md,
+            border: `2px solid ${THEME.primary}`,
+          }}>
+            <button
+              onClick={performUndo}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                background: THEME.primary,
+                border: 'none',
+                borderRadius: '10px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: THEME.shadows.md,
+              }}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'scale(0.98)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+            >
+              Undo: {undoHistory[0].type === 'increment' ? '-' : '+'}{undoHistory[0].categoryId === 'reviews' ? 'Review' : undoHistory[0].categoryId === 'demos' ? 'Demo' : 'Callback'} ({formatRelativeTime(undoHistory[0].timestamp)})
+            </button>
+          </div>
+        )}
+
+        {/* Pace Indicator */}
+        <div style={{
+          background: THEME.white,
+          borderRadius: '16px',
+          padding: '20px',
+          boxShadow: THEME.shadows.md,
+        }}>
+          <h3 style={{
+            margin: '0 0 16px 0',
+            fontSize: '16px',
+            fontWeight: '700',
+            color: THEME.text,
+            fontFamily: 'var(--font-display)',
+          }}>
+            Weekly Pace
+          </h3>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {paceIndicator.map((indicator, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  background:
+                    indicator.status === 'ahead' ? 'rgba(40, 167, 69, 0.08)' :
+                    indicator.status === 'behind' ? 'rgba(220, 53, 69, 0.08)' :
+                    'rgba(0, 86, 164, 0.08)',
+                  borderLeft: `4px solid ${
+                    indicator.status === 'ahead' ? THEME.success :
+                    indicator.status === 'behind' ? THEME.danger :
+                    THEME.primary
+                  }`,
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{
+                  fontSize: '20px',
+                }}>
+                  {indicator.status === 'ahead' ? '✨' : indicator.status === 'behind' ? '⚡' : '✓'}
+                </div>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: THEME.text,
+                  fontFamily: 'var(--font-body)',
+                }}>
+                  {indicator.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <h3 style={{
+        margin: '0 0 16px 0',
+        fontSize: '20px',
+        fontWeight: '600',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
         This Week
       </h3>
-      
+
       <div style={{
         background: THEME.white,
         borderRadius: '16px',
         padding: '20px',
         boxShadow: THEME.shadows.md,
+        marginBottom: '20px',
       }}>
         {CATEGORIES.map((category, index) => {
           const count = weekStats[category.id] || 0;
           const Icon = category.icon;
-          
+
           let gradient = category.color;
           if (category.id === 'reviews') gradient = THEME.gradients.warning;
           else if (category.id === 'demos') gradient = THEME.gradients.success;
           else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
-          
+
           return (
             <div
               key={category.id}
@@ -2711,18 +3040,18 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
               }}>
                 <Icon size={20} color={THEME.white} />
               </div>
-              <div style={{ 
-                flex: 1, 
-                fontSize: '15px', 
+              <div style={{
+                flex: 1,
+                fontSize: '15px',
                 color: THEME.text,
                 fontFamily: 'var(--font-body)',
                 fontWeight: '500',
               }}>
                 {category.name}
               </div>
-              <div style={{ 
-                fontSize: '22px', 
-                fontWeight: '700', 
+              <div style={{
+                fontSize: '22px',
+                fontWeight: '700',
                 background: gradient,
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
@@ -2734,6 +3063,108 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
             </div>
           );
         })}
+
+        {/* Week Progress Mini-Chart */}
+        <div style={{
+          marginTop: '24px',
+          paddingTop: '20px',
+          borderTop: `1px solid ${THEME.border}`,
+        }}>
+          <div style={{
+            fontSize: '14px',
+            fontWeight: '600',
+            color: THEME.textLight,
+            marginBottom: '12px',
+            fontFamily: 'var(--font-body)',
+          }}>
+            Daily Trend
+          </div>
+          <div style={{
+            height: '80px',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            gap: '6px',
+          }}>
+            {last7Days.map((day, idx) => (
+              <div
+                key={idx}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    height: `${maxDay > 0 ? (day.total / maxDay) * 60 : 4}px`,
+                    background: 'linear-gradient(180deg, #4A90D9 0%, #0056A4 100%)',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'all 0.3s ease',
+                    cursor: 'pointer',
+                    minHeight: '4px',
+                  }}
+                  title={`${day.name}: ${day.total} items`}
+                />
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: THEME.textLight,
+                    fontWeight: '600',
+                    fontFamily: 'var(--font-body)',
+                  }}
+                >
+                  {day.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Goal Insights */}
+      <div style={{
+        background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+        borderRadius: '16px',
+        padding: '20px',
+        boxShadow: THEME.shadows.md,
+        color: THEME.white,
+      }}>
+        <h3 style={{
+          margin: '0 0 16px 0',
+          fontSize: '16px',
+          fontWeight: '700',
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span>💡</span> Insights
+        </h3>
+        <div style={{
+          display: 'grid',
+          gap: '10px',
+        }}>
+          {goalInsights.map((insight, idx) => (
+            <div
+              key={idx}
+              style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                opacity: 0.95,
+                lineHeight: '1.5',
+                fontFamily: 'var(--font-body)',
+                paddingLeft: '12px',
+                borderLeft: '3px solid rgba(255,255,255,0.3)',
+              }}
+            >
+              {insight}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
