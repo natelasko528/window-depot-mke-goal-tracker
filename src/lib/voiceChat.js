@@ -139,14 +139,19 @@ const FALLBACK_MODELS = [
 
 const validateModel = (model) => {
   if (!model || typeof model !== 'string') {
-    return FALLBACK_MODELS[0];
+    return 'gemini-2.0-flash-exp'; // Stable fallback model
   }
-  // Model should be a valid native audio model
-  if (FALLBACK_MODELS.includes(model)) {
+  // Check if it's a valid live model
+  const validLiveModels = [
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-pro'
+  ];
+  if (validLiveModels.includes(model)) {
     return model;
   }
-  console.warn(`Model "${model}" not in known valid list, using default`);
-  return FALLBACK_MODELS[0];
+  // Default to stable model if unknown
+  console.warn(`Model "${model}" not in known valid list, using "gemini-2.0-flash-exp"`);
+  return 'gemini-2.0-flash-exp';
 };
 
 /**
@@ -507,16 +512,6 @@ class VoiceChatSession {
       console.log('Setup complete - voice chat ready');
       this.setupComplete = true;
       this.onStatusChange('ready');
-      
-      // Signal to server that we're ready to receive content
-      if (webSocket && webSocket.readyState === WebSocket.OPEN) {
-        const activityStartMessage = {
-          activityStart: {
-            type: 'microphone'
-          }
-        };
-        webSocket.send(JSON.stringify(activityStartMessage));
-      }
       
       // Resolve the promise now that setup is complete
       if (this.setupPromiseResolve) {
