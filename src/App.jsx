@@ -45,58 +45,13 @@ import {
 import DebugLogger from './components/DebugLogger';
 
 // ========================================
-// THEME & CONSTANTS
+// CONSTANTS
 // ========================================
 
-const THEME = {
-  primary: '#0056A4',
-  primaryDark: '#003D73',
-  primaryLight: '#4A90D9',
-  secondary: '#F5F7FA',
-  accent: '#E8F4FD',
-  success: '#28A745',
-  warning: '#FFC107',
-  danger: '#DC3545',
-  white: '#FFFFFF',
-  text: '#1A1A2E',
-  textLight: '#6B7280',
-  border: '#E5E7EB',
-  gold: '#FFD700',
-  silver: '#C0C0C0',
-  bronze: '#CD7F32',
-  
-  // Expanded color palette with gradients
-  gradients: {
-    primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)',
-    success: 'linear-gradient(135deg, #28A745 0%, #5CB85C 100%)',
-    warning: 'linear-gradient(135deg, #FFC107 0%, #FFD700 100%)',
-    danger: 'linear-gradient(135deg, #DC3545 0%, #E74C3C 100%)',
-    gold: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
-    background: 'linear-gradient(135deg, #F5F7FA 0%, #E8F4FD 100%)',
-    cardHover: 'linear-gradient(135deg, rgba(0, 86, 164, 0.05) 0%, rgba(74, 144, 217, 0.05) 100%)',
-  },
-  
-  // Additional accent colors
-  accentColors: {
-    purple: '#9333EA',
-    teal: '#17A2B8',
-    orange: '#F59E0B',
-  },
-  
-  // Shadow variants for depth
-  shadows: {
-    sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
-    md: '0 2px 8px rgba(0, 0, 0, 0.08)',
-    lg: '0 4px 16px rgba(0, 0, 0, 0.12)',
-    xl: '0 8px 32px rgba(0, 0, 0, 0.16)',
-    layered: '0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04)',
-  },
-};
-
 const CATEGORIES = [
-  { id: 'reviews', name: 'Reviews', icon: Star, color: THEME.warning, defaultGoal: 5 },
-  { id: 'demos', name: 'Demos', icon: Calendar, color: THEME.success, defaultGoal: 3 },
-  { id: 'callbacks', name: 'Callbacks', icon: Phone, color: THEME.primary, defaultGoal: 10 },
+  { id: 'reviews', name: 'Reviews', icon: Star, color: '#FFC107', defaultGoal: 5 },
+  { id: 'demos', name: 'Demos', icon: Calendar, color: '#28A745', defaultGoal: 3 },
+  { id: 'callbacks', name: 'Callbacks', icon: Phone, color: '#0056A4', defaultGoal: 10 },
 ];
 
 const PRODUCT_INTERESTS = [
@@ -2936,6 +2891,7 @@ function Goals({ currentUser, onUpdateGoals, theme }) {
 // ========================================
 
 function Appointments({ appointments, onAdd, onDelete, theme }) {
+  const THEME = theme;
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     customerName: '',
@@ -3363,6 +3319,7 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
 // ========================================
 
 function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost, theme }) {
+  const THEME = theme;
   const [newPost, setNewPost] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
@@ -3783,6 +3740,7 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
 // ========================================
 
 function Leaderboard({ leaderboard, currentUser, theme }) {
+  const THEME = theme;
   const medals = [THEME.gold, THEME.silver, THEME.bronze];
   
   return (
@@ -3921,6 +3879,7 @@ function Leaderboard({ leaderboard, currentUser, theme }) {
 // ========================================
 
 function HistoryView({ currentUser, users, dailyLogs, theme }) {
+  const THEME = theme;
   const [timeRange, setTimeRange] = useState('week');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -4778,6 +4737,7 @@ function HistoryView({ currentUser, users, dailyLogs, theme }) {
 // ========================================
 
 function ActiveUsersList({ activeUsers, currentUser, theme }) {
+  const THEME = theme;
   return (
     <div style={{
       background: THEME.white,
@@ -4954,6 +4914,7 @@ const formatInlineMarkdown = (text) => {
 };
 
 function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings, theme }) {
+  const THEME = theme;
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -6273,8 +6234,9 @@ Keep responses conversational and concise for voice interaction.`,
 // ========================================
 
 function TeamView({ users, dailyLogs, theme }) {
+  const THEME = theme;
   const today = getToday();
-  
+
   return (
     <div>
       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
@@ -6397,6 +6359,7 @@ function TeamView({ users, dailyLogs, theme }) {
 // ========================================
 
 function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport, theme }) {
+  const THEME = theme;
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('employee');
@@ -6734,8 +6697,9 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
 // ========================================
 
 function Reports({ users, dailyLogs, appointments, theme }) {
+  const THEME = theme;
   const [timeRange, setTimeRange] = useState('week');
-  
+
   const chartData = useMemo(() => {
     const data = users.filter(u => u.role === 'employee').map(user => {
       let total = 0;
