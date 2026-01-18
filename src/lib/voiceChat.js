@@ -415,13 +415,13 @@ class VoiceChatSession {
                   },
                 },
                 // Merge generation config parameters
+                // Note: presencePenalty and frequencyPenalty are NOT supported by Gemini Live API
+                // They are only available for text chat via REST API
                 ...(this.generationConfig.temperature !== undefined && { temperature: this.generationConfig.temperature }),
                 ...(this.generationConfig.topP !== undefined && { topP: this.generationConfig.topP }),
                 ...(this.generationConfig.topK !== undefined && { topK: this.generationConfig.topK }),
                 ...(this.generationConfig.maxOutputTokens !== undefined && { maxOutputTokens: this.generationConfig.maxOutputTokens }),
                 ...(this.generationConfig.candidateCount !== undefined && { candidateCount: this.generationConfig.candidateCount }),
-                ...(this.generationConfig.presencePenalty !== undefined && { presencePenalty: this.generationConfig.presencePenalty }),
-                ...(this.generationConfig.frequencyPenalty !== undefined && { frequencyPenalty: this.generationConfig.frequencyPenalty }),
               },
               realtimeInputConfig: {
                 automaticActivityDetection: {

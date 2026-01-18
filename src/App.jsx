@@ -3898,18 +3898,33 @@ Keep responses conversational and concise for voice interaction.`,
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+        <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700', color: THEME.text, letterSpacing: '-0.02em' }}>
           AI Coach
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {isAIConfigured() && chatMode === 'text' && (
-            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+            <div style={{ 
+              fontSize: '12px', 
+              color: THEME.textLight,
+              padding: '6px 12px',
+              background: THEME.secondary,
+              borderRadius: '6px',
+              fontWeight: '500'
+            }}>
               {remainingRequests} requests/min
             </div>
           )}
           {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
-            <div style={{ fontSize: '12px', color: getStatusColor(), fontWeight: '600' }}>
+            <div style={{ 
+              fontSize: '12px', 
+              color: getStatusColor(), 
+              fontWeight: '600',
+              padding: '6px 12px',
+              background: voiceStatus === 'listening' ? 'rgba(40, 167, 69, 0.1)' : voiceStatus === 'processing' ? 'rgba(255, 193, 7, 0.1)' : 'rgba(0, 123, 255, 0.1)',
+              borderRadius: '6px',
+              transition: 'all 0.2s ease'
+            }}>
               {getStatusText()}
             </div>
           )}
@@ -3921,14 +3936,27 @@ Keep responses conversational and concise for voice interaction.`,
         <div style={{
           display: 'flex',
           gap: '8px',
-          marginBottom: '16px',
+          marginBottom: '20px',
+          background: THEME.secondary,
+          padding: '4px',
+          borderRadius: '10px',
         }}>
           <button
             onClick={() => chatMode === 'voice' ? handleEndVoiceChat() : setChatMode('text')}
+            onMouseEnter={(e) => {
+              if (chatMode !== 'text') {
+                e.currentTarget.style.background = 'rgba(0, 123, 255, 0.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (chatMode !== 'text') {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
             style={{
               flex: 1,
               padding: '10px 16px',
-              background: chatMode === 'text' ? THEME.primary : THEME.secondary,
+              background: chatMode === 'text' ? THEME.primary : 'transparent',
               color: chatMode === 'text' ? THEME.white : THEME.text,
               border: 'none',
               borderRadius: '8px',
@@ -3939,6 +3967,8 @@ Keep responses conversational and concise for voice interaction.`,
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: chatMode === 'text' ? 'scale(1)' : 'scale(1)',
             }}
           >
             <MessageSquare size={16} />
@@ -3947,10 +3977,20 @@ Keep responses conversational and concise for voice interaction.`,
           <button
             onClick={() => chatMode === 'text' ? handleStartVoiceChat() : null}
             disabled={voiceStatus === 'connecting'}
+            onMouseEnter={(e) => {
+              if (chatMode !== 'voice' && !e.currentTarget.disabled) {
+                e.currentTarget.style.background = 'rgba(0, 123, 255, 0.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (chatMode !== 'voice') {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
             style={{
               flex: 1,
               padding: '10px 16px',
-              background: chatMode === 'voice' ? THEME.primary : THEME.secondary,
+              background: chatMode === 'voice' ? THEME.primary : 'transparent',
               color: chatMode === 'voice' ? THEME.white : THEME.text,
               border: 'none',
               borderRadius: '8px',
@@ -3961,6 +4001,8 @@ Keep responses conversational and concise for voice interaction.`,
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+              opacity: voiceStatus === 'connecting' ? 0.6 : 1,
             }}
           >
             <Mic size={16} />
@@ -3972,28 +4014,39 @@ Keep responses conversational and concise for voice interaction.`,
       {voiceError && (
         <div style={{
           marginBottom: '16px',
-          padding: '12px',
-          background: '#F8D7DA',
-          borderRadius: '8px',
+          padding: '14px 16px',
+          background: 'linear-gradient(135deg, #fee 0%, #fdd 100%)',
+          border: '1px solid rgba(220, 53, 69, 0.3)',
+          borderRadius: '10px',
           fontSize: '13px',
           color: '#721C24',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '10px',
+          boxShadow: '0 2px 8px rgba(220, 53, 69, 0.15)',
+          animation: 'fadeIn 0.3s ease-in',
         }}>
-          <X size={16} />
-          {voiceError}
+          <X size={18} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, lineHeight: '1.5' }}>{voiceError}</div>
           <button
             onClick={() => setVoiceError(null)}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(220, 53, 69, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
             style={{
               marginLeft: 'auto',
-              background: 'none',
+              background: 'transparent',
               border: 'none',
               cursor: 'pointer',
-              padding: '4px',
+              padding: '4px 6px',
+              borderRadius: '4px',
+              transition: 'background 0.2s ease',
             }}
           >
-            <X size={14} color="#721C24" />
+            <X size={16} color="#721C24" />
           </button>
         </div>
       )}
@@ -4079,59 +4132,62 @@ Keep responses conversational and concise for voice interaction.`,
               style={{
                 display: 'flex',
                 gap: '12px',
-                marginBottom: '16px',
+                marginBottom: '20px',
                 flexDirection: message.role === 'user' ? 'row-reverse' : 'row',
+                animation: 'fadeInUp 0.3s ease-out',
               }}
             >
               <div style={{
-                width: '32px',
-                height: '32px',
+                width: '36px',
+                height: '36px',
                 borderRadius: '50%',
                 background: message.role === 'user' ? THEME.primary : THEME.secondary,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
               }}>
                 {message.role === 'user' ? (
                   <div style={{
-                    width: '24px',
-                    height: '24px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
                     background: THEME.white,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '10px',
+                    fontSize: '11px',
                     fontWeight: '600',
                     color: THEME.primary,
                   }}>
                     {currentUser?.name?.[0]?.toUpperCase() || 'U'}
                   </div>
                 ) : (
-                  <Bot size={18} color={THEME.primary} />
+                  <Bot size={20} color={THEME.primary} />
                 )}
               </div>
               <div style={{
                 flex: 1,
                 background: message.role === 'user' ? THEME.primary : THEME.secondary,
                 color: message.role === 'user' ? THEME.white : THEME.text,
-                padding: '12px 16px',
-                borderRadius: '12px',
+                padding: '14px 18px',
+                borderRadius: message.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                 maxWidth: '80%',
                 wordWrap: 'break-word',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
               }}>
                 {message.isVoice && (
-                  <div style={{ fontSize: '10px', opacity: 0.7, marginBottom: '4px' }}>
-                    <Mic size={10} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                  <div style={{ fontSize: '10px', opacity: 0.8, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Mic size={12} />
                     Voice
                   </div>
                 )}
-                <div style={{ fontSize: '14px', lineHeight: '1.5' }}>
+                <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
                   {formatMarkdown(message.content)}
                 </div>
                 {message.isError && (
-                  <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '4px' }}>
+                  <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '6px', paddingTop: '6px', borderTop: `1px solid ${message.role === 'user' ? 'rgba(255, 255, 255, 0.2)' : THEME.border}` }}>
                     Error occurred
                   </div>
                 )}
@@ -4139,26 +4195,58 @@ Keep responses conversational and concise for voice interaction.`,
             </div>
           ))}
           {isLoading && (
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', animation: 'fadeInUp 0.3s ease-out' }}>
               <div style={{
-                width: '32px',
-                height: '32px',
+                width: '36px',
+                height: '36px',
                 borderRadius: '50%',
                 background: THEME.secondary,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
               }}>
-                <Bot size={18} color={THEME.primary} />
+                <Bot size={20} color={THEME.primary} />
               </div>
               <div style={{
                 background: THEME.secondary,
-                padding: '12px 16px',
-                borderRadius: '12px',
+                padding: '14px 18px',
+                borderRadius: '16px 16px 16px 4px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
               }}>
-                <div style={{ fontSize: '14px', color: THEME.textLight }}>
-                  Thinking...
+                <div style={{ 
+                  fontSize: '14px', 
+                  color: THEME.textLight,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    background: THEME.primary,
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                  }}></span>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    background: THEME.primary,
+                    animation: 'pulse 1.5s ease-in-out infinite 0.2s',
+                  }}></span>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    background: THEME.primary,
+                    animation: 'pulse 1.5s ease-in-out infinite 0.4s',
+                  }}></span>
+                  <span style={{ marginLeft: '4px' }}>Thinking...</span>
                 </div>
               </div>
             </div>
@@ -4232,22 +4320,27 @@ Keep responses conversational and concise for voice interaction.`,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '16px',
-            padding: '20px',
+            gap: '20px',
+            padding: '24px',
           }}>
             {/* Audio Level Indicator */}
             <div style={{
               width: '100%',
-              height: '4px',
+              height: '6px',
               background: THEME.secondary,
-              borderRadius: '2px',
+              borderRadius: '3px',
               overflow: 'hidden',
+              position: 'relative',
             }}>
               <div style={{
                 height: '100%',
-                width: `${audioLevel * 100}%`,
-                background: voiceStatus === 'listening' ? THEME.success : THEME.primary,
-                transition: 'width 0.1s',
+                width: `${Math.max(audioLevel * 100, 2)}%`,
+                background: voiceStatus === 'listening' 
+                  ? `linear-gradient(90deg, ${THEME.success} 0%, #28a745 100%)` 
+                  : `linear-gradient(90deg, ${THEME.primary} 0%, #0056b3 100%)`,
+                borderRadius: '3px',
+                transition: 'width 0.1s ease-out, background 0.3s ease',
+                boxShadow: voiceStatus === 'listening' ? '0 0 8px rgba(40, 167, 69, 0.4)' : 'none',
               }} />
             </div>
 
@@ -4255,41 +4348,63 @@ Keep responses conversational and concise for voice interaction.`,
             <button
               onClick={handleToggleListening}
               disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
+              onMouseEnter={(e) => {
+                if (!e.currentTarget.disabled) {
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
               style={{
-                width: '72px',
-                height: '72px',
+                width: '80px',
+                height: '80px',
                 borderRadius: '50%',
-                background: voiceStatus === 'listening' ? THEME.danger : THEME.primary,
+                background: voiceStatus === 'listening' 
+                  ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)` 
+                  : `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
                 border: 'none',
                 cursor: (voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: voiceStatus === 'listening'
-                  ? `0 0 0 ${8 + audioLevel * 16}px rgba(220,53,69,0.2)`
-                  : '0 4px 12px rgba(0,0,0,0.15)',
-                transition: 'all 0.2s',
+                  ? `0 0 0 ${8 + audioLevel * 20}px rgba(220,53,69,0.25), 0 6px 20px rgba(220,53,69,0.3)`
+                  : '0 6px 20px rgba(0, 123, 255, 0.25)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: 'scale(1)',
+                position: 'relative',
               }}
             >
               {voiceStatus === 'listening' ? (
-                <MicOff size={28} color={THEME.white} />
+                <MicOff size={32} color={THEME.white} />
               ) : (
-                <Mic size={28} color={THEME.white} />
+                <Mic size={32} color={THEME.white} />
               )}
             </button>
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <button
                 onClick={handleEndVoiceChat}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = THEME.border;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = THEME.secondary;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
                 style={{
-                  padding: '10px 20px',
+                  padding: '10px 24px',
                   background: THEME.secondary,
-                  border: 'none',
+                  border: `1px solid ${THEME.border}`,
                   borderRadius: '8px',
                   color: THEME.text,
                   fontSize: '14px',
                   fontWeight: '600',
                   cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
                 }}
               >
                 End Voice Chat
@@ -5541,6 +5656,9 @@ function SettingsPage({ settings, onSaveSettings }) {
             <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
               Penalize new topics (-2.0 to 2.0). Default: 0.0 (no penalty)
             </p>
+            <p style={{ margin: '4px 0 0', fontSize: '10px', color: THEME.warning, fontStyle: 'italic' }}>
+              Note: Only applies to text chat, not voice chat
+            </p>
           </div>
 
           {/* Frequency Penalty */}
@@ -5559,6 +5677,9 @@ function SettingsPage({ settings, onSaveSettings }) {
             />
             <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
               Penalize repetition (-2.0 to 2.0). Default: 0.0 (no penalty)
+            </p>
+            <p style={{ margin: '4px 0 0', fontSize: '10px', color: THEME.warning, fontStyle: 'italic' }}>
+              Note: Only applies to text chat, not voice chat
             </p>
           </div>
         </div>
