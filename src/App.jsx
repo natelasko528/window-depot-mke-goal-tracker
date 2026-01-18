@@ -3490,6 +3490,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
   const [voiceError, setVoiceError] = useState(null);
   // eslint-disable-next-line no-unused-vars
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [showChatSettings, setShowChatSettings] = useState(false);
   const messagesEndRef = useRef(null);
   const saveDebounceRef = useRef(null);
   const voiceSessionRef = useRef(null);
@@ -3905,42 +3906,47 @@ Keep responses conversational and concise for voice interaction.`,
           setMessages(prev => {
             const messageRole = role === 'assistant' ? 'assistant' : 'user';
             
-            // If streaming and last message is from same role and also streaming, update it
-            if (isStreaming && prev.length > 0) {
-              const lastMessage = prev[prev.length - 1];
-              if (lastMessage.role === messageRole && lastMessage.isStreaming && lastMessage.isVoice) {
-                // Update existing streaming message
-                return prev.map((msg, idx) => 
-                  idx === prev.length - 1 
-                    ? { ...msg, content: text, timestamp: Date.now() }
-                    : msg
-                );
+            // Find the last streaming message from the same role (search backwards for efficiency)
+            let lastStreamingIndex = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              const msg = prev[i];
+              if (msg.role === messageRole && msg.isStreaming && msg.isVoice) {
+                lastStreamingIndex = i;
+                break;
               }
             }
             
-            // Create new message (either first message or final/non-streaming update)
+            // If streaming and we found a matching streaming message, update it (preserve timestamp)
+            if (isStreaming && lastStreamingIndex >= 0) {
+              return prev.map((msg, idx) => 
+                idx === lastStreamingIndex 
+                  ? { ...msg, content: text } // Update content only, keep original timestamp
+                  : msg
+              );
+            }
+            
+            // If not streaming and we found a matching streaming message, finalize it (preserve timestamp and ID)
+            if (!isStreaming && lastStreamingIndex >= 0) {
+              return prev.map((msg, idx) => 
+                idx === lastStreamingIndex 
+                  ? { ...msg, content: text, isStreaming: false } // Finalize, keep original timestamp and ID
+                  : msg
+              );
+            }
+            
+            // Create new message (no matching streaming message found)
             const newMessage = {
-              id: isStreaming ? `streaming-${messageRole}-${Date.now()}` : `${messageRole}-${Date.now()}`,
+              id: `${messageRole}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               role: messageRole,
               content: text,
               timestamp: Date.now(),
               isVoice: true,
-              isStreaming: isStreaming, // Track if message is still being streamed
+              isStreaming: isStreaming,
             };
             
-            // If not streaming and last message was streaming from same role, replace it
-            if (!isStreaming && prev.length > 0) {
-              const lastMessage = prev[prev.length - 1];
-              if (lastMessage.role === messageRole && lastMessage.isStreaming && lastMessage.isVoice) {
-                return prev.map((msg, idx) => 
-                  idx === prev.length - 1 
-                    ? { ...newMessage, id: msg.id } // Keep same ID to avoid flicker
-                    : msg
-                );
-              }
-            }
-            
-            return [...prev, newMessage];
+            // Sort messages by timestamp after adding new message
+            const updated = [...prev, newMessage];
+            return updated.sort((a, b) => a.timestamp - b.timestamp);
           });
         },
         onError: (error) => {
@@ -4040,8 +4046,130 @@ Keep responses conversational and concise for voice interaction.`,
               {getStatusText()}
             </div>
           )}
+          <button
+            onClick={() => setShowChatSettings(!showChatSettings)}
+            style={{
+              padding: '8px 10px',
+              background: showChatSettings ? THEME.primary : THEME.secondary,
+              color: showChatSettings ? THEME.white : THEME.text,
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              fontWeight: '500',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              if (!showChatSettings) {
+                e.currentTarget.style.background = 'rgba(0, 123, 255, 0.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showChatSettings) {
+                e.currentTarget.style.background = THEME.secondary;
+              }
+            }}
+          >
+            <Settings size={14} />
+            Settings
+          </button>
         </div>
       </div>
+
+      {/* Chat Settings Panel */}
+      {showChatSettings && (
+        <div style={{
+          marginBottom: '20px',
+          padding: '16px',
+          background: THEME.white,
+          border: `1px solid ${THEME.border}`,
+          borderRadius: '10px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+            {/* Voice Selection */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: THEME.text, marginBottom: '6px' }}>
+                <Volume2 size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                AI Voice
+              </label>
+              <select
+                value={appSettings?.ai?.voiceName || 'Puck'}
+                onChange={(e) => {
+                  const newSettings = {
+                    ...appSettings,
+                    ai: {
+                      ...appSettings.ai,
+                      voiceName: e.target.value,
+                    },
+                  };
+                  setAppSettings(newSettings);
+                  storage.set('appSettings', newSettings);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.white,
+                  color: THEME.text,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {VOICE_OPTIONS.map(voice => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.name} - {voice.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Model Selection (for text/voice model) */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: THEME.text, marginBottom: '6px' }}>
+                <Bot size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                Voice Model
+              </label>
+              <select
+                value={appSettings?.ai?.voiceModel || 'gemini-2.5-flash-native-audio-preview-12-2025'}
+                onChange={(e) => {
+                  const newSettings = {
+                    ...appSettings,
+                    ai: {
+                      ...appSettings.ai,
+                      voiceModel: e.target.value,
+                    },
+                  };
+                  setAppSettings(newSettings);
+                  storage.set('appSettings', newSettings);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${THEME.border}`,
+                  background: THEME.white,
+                  color: THEME.text,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {LIVE_MODELS_FALLBACK.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mode Toggle */}
       {voiceChatEnabled && isAIConfigured() && (
