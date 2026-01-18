@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Moon, Sun } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { getTheme, getSystemThemePreference, listenToSystemThemeChanges } from './lib/theme';
 import { 
   syncAllFromSupabase, 
   queueSyncOperation, 
@@ -35,6 +36,12 @@ import {
   isVoiceChatSupported,
   VOICE_OPTIONS
 } from './lib/voiceChat';
+import {
+  createDailySnapshot,
+  ensureDailySnapshots,
+  initializeSnapshots,
+  getLocalSnapshots,
+} from './lib/snapshots';
 import DebugLogger from './components/DebugLogger';
 
 // ========================================
@@ -343,12 +350,15 @@ export default function WindowDepotTracker() {
       achievementAlerts: true,
     },
   });
-  
+  const [themeMode, setThemeMode] = useState('system');
+  const [dailySnapshots, setDailySnapshots] = useState({});
+
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
   const initAttempts = useRef(0);
   const subscriptionsRef = useRef([]);
   const presenceChannelRef = useRef(null);
+  const lastSnapshotDateRef = useRef(null);
   
   // ========================================
   // INITIALIZATION & DATA LOADING
@@ -384,18 +394,20 @@ export default function WindowDepotTracker() {
           storage.get('currentUser', null),
           storage.get('rememberUser', false),
           storage.get('appSettings', null),
+          storage.get('themeMode', 'system'),
+          storage.get('dailySnapshots', {}),
         ];
-        
-        const timeout = new Promise((_, reject) => 
+
+        const timeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Load timeout')), 10000)
         );
-        
+
         const results = await Promise.race([
           Promise.all(loadPromises),
           timeout
         ]);
-        
-        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings] = results;
+
+        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings, savedThemeMode, loadedSnapshots] = results;
 
         // Use synced data if available, otherwise use local
         const finalUsers = syncedData?.users || loadedUsers || [];
@@ -404,6 +416,16 @@ export default function WindowDepotTracker() {
         setAppointments(syncedData?.appointments || loadedAppts || []);
         setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
+        setDailySnapshots(loadedSnapshots || {});
+
+        // Initialize snapshots from Supabase
+        if (navigator.onLine && isSupabaseConfigured) {
+          try {
+            await initializeSnapshots();
+          } catch (error) {
+            console.error('Failed to initialize snapshots:', error);
+          }
+        }
 
         // Load and apply settings
         if (savedSettings) {
@@ -442,6 +464,11 @@ export default function WindowDepotTracker() {
           }
         }
         
+        // Load and apply theme preference
+        if (savedThemeMode) {
+          setThemeMode(savedThemeMode);
+        }
+
         // Restore current user from synced users if remembered
         if (shouldRemember && savedUser) {
           // Find the user in the synced users array by ID to ensure we have the latest data
@@ -453,7 +480,7 @@ export default function WindowDepotTracker() {
             setCurrentUser(savedUser);
           }
         }
-        
+
         // Initialization complete - wait a bit before allowing saves
         await new Promise(resolve => setTimeout(resolve, 500));
         hasInitialized.current = true;
@@ -516,7 +543,28 @@ export default function WindowDepotTracker() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  
+
+  // ========================================
+  // SYSTEM THEME PREFERENCE DETECTION
+  // ========================================
+
+  useEffect(() => {
+    if (themeMode !== 'system') return;
+
+    const unsubscribe = listenToSystemThemeChanges(() => {
+      // Trigger a re-render by toggling theme state when system preference changes
+      setThemeMode(prev => (prev === 'system' ? 'system' : prev));
+    });
+
+    return unsubscribe;
+  }, [themeMode]);
+
+  // ========================================
+  // COMPUTE CURRENT THEME
+  // ========================================
+
+  const currentTheme = useMemo(() => getTheme(themeMode), [themeMode]);
+
   // ========================================
   // REAL-TIME SUBSCRIPTIONS
   // ========================================
@@ -771,7 +819,31 @@ export default function WindowDepotTracker() {
       updatePresence({ currentView: activeView });
     }
   }, [activeView, currentUser]);
-  
+
+  // ========================================
+  // ENSURE DAILY SNAPSHOTS
+  // ========================================
+
+  useEffect(() => {
+    if (!isInitialized || !users.length || !Object.keys(dailyLogs).length) {
+      return;
+    }
+
+    // Create snapshots for yesterday if not already created
+    const ensureSnapshots = async () => {
+      try {
+        await ensureDailySnapshots(users, dailyLogs);
+        // Reload snapshots from storage
+        const updatedSnapshots = await getLocalSnapshots();
+        setDailySnapshots(updatedSnapshots);
+      } catch (error) {
+        console.error('Failed to ensure daily snapshots:', error);
+      }
+    };
+
+    ensureSnapshots();
+  }, [isInitialized, users.length, Object.keys(dailyLogs).length]);
+
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
   // ========================================
@@ -834,7 +906,7 @@ export default function WindowDepotTracker() {
   
   useEffect(() => {
     if (!hasInitialized.current) return;
-    
+
     const saveTimeout = setTimeout(async () => {
       try {
         if (rememberUser) {
@@ -845,10 +917,24 @@ export default function WindowDepotTracker() {
         console.error('Auto-save user preference failed:', error);
       }
     }, 500);
-    
+
     return () => clearTimeout(saveTimeout);
   }, [currentUser, rememberUser]);
-  
+
+  useEffect(() => {
+    if (!hasInitialized.current) return;
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('dailySnapshots', dailySnapshots);
+      } catch (error) {
+        console.error('Auto-save snapshots failed:', error);
+      }
+    }, 1000);
+
+    return () => clearTimeout(saveTimeout);
+  }, [dailySnapshots]);
+
   // ========================================
   // TOAST NOTIFICATION SYSTEM
   // ========================================
@@ -1071,6 +1157,12 @@ export default function WindowDepotTracker() {
           model: newSettings.ai.textModel ?? updatedSettings.ai.textModel,
           rateLimit: newSettings.ai.rateLimit ?? updatedSettings.ai.rateLimit,
         });
+      }
+
+      // Handle theme mode if included in settings
+      if (newSettings.themeMode) {
+        setThemeMode(newSettings.themeMode);
+        await storage.set('themeMode', newSettings.themeMode);
       }
 
       showToast('Settings saved', 'success');
@@ -1831,15 +1923,15 @@ export default function WindowDepotTracker() {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        background: THEME.secondary,
+        background: currentTheme.secondary,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{
             width: '60px',
             height: '60px',
-            border: `4px solid ${THEME.accent}`,
-            borderTop: `4px solid ${THEME.primary}`,
+            border: `4px solid ${currentTheme.accent}`,
+            borderTop: `4px solid ${currentTheme.primary}`,
             borderRadius: '50%',
             margin: '0 auto 20px',
             animation: 'spin 1s linear infinite',
@@ -1850,7 +1942,7 @@ export default function WindowDepotTracker() {
               100% { transform: rotate(360deg); }
             }
           `}</style>
-          <div style={{ color: THEME.text, fontSize: '18px', fontWeight: '600' }}>
+          <div style={{ color: currentTheme.text, fontSize: '18px', fontWeight: '600' }}>
             Loading Window Depot Tracker...
           </div>
         </div>
@@ -1863,12 +1955,13 @@ export default function WindowDepotTracker() {
   // ========================================
   
   if (!currentUser) {
-    return <UserSelection 
+    return <UserSelection
       users={users}
       onSelectUser={setCurrentUser}
       onCreateUser={createUser}
       rememberUser={rememberUser}
       onRememberChange={setRememberUser}
+      theme={currentTheme}
     />;
   }
   
@@ -1879,15 +1972,15 @@ export default function WindowDepotTracker() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: THEME.gradients.background,
+      background: currentTheme.gradients.background,
       fontFamily: 'var(--font-body)',
       paddingBottom: '80px',
     }}>
       {/* Offline Banner */}
       {!isOnline && (
         <div style={{
-          background: THEME.warning,
-          color: THEME.text,
+          background: currentTheme.warning,
+          color: currentTheme.text,
           padding: '12px',
           textAlign: 'center',
           fontWeight: '600',
@@ -1908,11 +2001,11 @@ export default function WindowDepotTracker() {
           top: '20px',
           right: '20px',
           zIndex: 10000,
-          background: toast.type === 'success' ? THEME.success :
-                     toast.type === 'error' ? THEME.danger :
-                     toast.type === 'warning' ? THEME.warning :
-                     THEME.primary,
-          color: THEME.white,
+          background: toast.type === 'success' ? currentTheme.success :
+                     toast.type === 'error' ? currentTheme.danger :
+                     toast.type === 'warning' ? currentTheme.warning :
+                     currentTheme.primary,
+          color: currentTheme.white,
           padding: '16px 24px',
           borderRadius: '8px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -1951,14 +2044,14 @@ export default function WindowDepotTracker() {
           animation: 'fadeIn 0.3s ease-out',
         }}>
           <div style={{
-            background: THEME.white,
+            background: currentTheme.white,
             padding: '40px',
             borderRadius: '20px',
             textAlign: 'center',
             animation: 'scaleIn 0.3s ease-out',
           }}>
             <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎉</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: THEME.primary }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: currentTheme.primary }}>
               Goal Complete!
             </div>
           </div>
@@ -1977,10 +2070,10 @@ export default function WindowDepotTracker() {
       
       {/* Header */}
       <div style={{
-        background: THEME.gradients.primary,
-        color: THEME.white,
+        background: currentTheme.gradients.primary,
+        color: currentTheme.white,
         padding: '24px 20px',
-        boxShadow: THEME.shadows.layered,
+        boxShadow: currentTheme.shadows.layered,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <h1 style={{ 
@@ -2018,7 +2111,7 @@ export default function WindowDepotTracker() {
             background: 'rgba(255,255,255,0.25)',
             border: 'none',
             borderRadius: '8px',
-            color: THEME.white,
+            color: currentTheme.white,
             fontSize: '13px',
             fontWeight: '600',
             cursor: 'pointer',
@@ -2040,32 +2133,35 @@ export default function WindowDepotTracker() {
       <div style={{ padding: '20px' }}>
         {activeView === 'dashboard' && (
           <div style={{ display: 'grid', gap: '20px' }}>
-            <Dashboard 
+            <Dashboard
               currentUser={currentUser}
               todayStats={todayStats}
               weekStats={weekStats}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
+              theme={currentTheme}
             />
-            <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} />
+            <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} theme={currentTheme} />
           </div>
         )}
-        
+
         {activeView === 'goals' && (
           <Goals
             currentUser={currentUser}
             onUpdateGoals={(goals) => updateUserGoals(currentUser.id, goals)}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'appointments' && (
           <Appointments
             appointments={appointments.filter(a => a.userId === currentUser.id)}
             onAdd={addAppointment}
             onDelete={deleteAppointment}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'feed' && (
           <Feed
             feed={feed}
@@ -2075,17 +2171,27 @@ export default function WindowDepotTracker() {
             onAddComment={addComment}
             onEditPost={editPost}
             onDeletePost={deletePost}
+            theme={currentTheme}
           />
         )}
         
         {activeView === 'leaderboard' && (
-          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} />
+          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} theme={currentTheme} />
         )}
-        
+
+        {activeView === 'history' && (
+          <HistoryView
+            currentUser={currentUser}
+            users={users}
+            dailyLogs={dailyLogs}
+            theme={currentTheme}
+          />
+        )}
+
         {activeView === 'team' && currentUser.role === 'manager' && (
-          <TeamView users={users} dailyLogs={dailyLogs} />
+          <TeamView users={users} dailyLogs={dailyLogs} theme={currentTheme} />
         )}
-        
+
         {activeView === 'admin' && currentUser.role === 'manager' && (
           <AdminPanel
             users={users}
@@ -2093,17 +2199,19 @@ export default function WindowDepotTracker() {
             onDeleteUser={deleteUser}
             onUpdateGoals={updateUserGoals}
             onExport={exportData}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'reports' && currentUser.role === 'manager' && (
           <Reports
             users={users}
             dailyLogs={dailyLogs}
             appointments={appointments}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'chatbot' && (
           <Chatbot
             currentUser={currentUser}
@@ -2112,6 +2220,7 @@ export default function WindowDepotTracker() {
             onIncrement={handleIncrement}
             appSettings={appSettings}
             setAppSettings={setAppSettings}
+            theme={currentTheme}
           />
         )}
 
@@ -2119,6 +2228,8 @@ export default function WindowDepotTracker() {
           <SettingsPage
             settings={appSettings}
             onSaveSettings={saveSettings}
+            currentThemeMode={themeMode}
+            theme={currentTheme}
           />
         )}
       </div>
@@ -2128,6 +2239,7 @@ export default function WindowDepotTracker() {
         activeView={activeView}
         onViewChange={setActiveView}
         isManager={currentUser.role === 'manager'}
+        theme={currentTheme}
       />
       
       {/* Debug Logger */}
@@ -2140,7 +2252,8 @@ export default function WindowDepotTracker() {
 // USER SELECTION COMPONENT
 // ========================================
 
-function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onRememberChange }) {
+function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onRememberChange, theme }) {
+  const THEME = theme || { /* fallback to light theme if needed */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
   const [mode, setMode] = useState(users.length === 0 ? 'create' : 'select');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('employee');
@@ -2413,7 +2526,8 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // DASHBOARD COMPONENT
 // ========================================
 
-function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement }) {
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, theme }) {
+  const THEME = theme;
   const [celebratingCategory, setCelebratingCategory] = useState(null);
   
   const handleIncrement = (categoryId) => {
@@ -2676,7 +2790,8 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 // GOALS COMPONENT
 // ========================================
 
-function Goals({ currentUser, onUpdateGoals }) {
+function Goals({ currentUser, onUpdateGoals, theme }) {
+  const THEME = theme;
   const [goals, setGoals] = useState(currentUser.goals);
   const [showSaved, setShowSaved] = useState(false);
   
@@ -2820,7 +2935,7 @@ function Goals({ currentUser, onUpdateGoals }) {
 // APPOINTMENTS COMPONENT
 // ========================================
 
-function Appointments({ appointments, onAdd, onDelete }) {
+function Appointments({ appointments, onAdd, onDelete, theme }) {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     customerName: '',
@@ -3247,7 +3362,7 @@ function Appointments({ appointments, onAdd, onDelete }) {
 // FEED COMPONENT
 // ========================================
 
-function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost }) {
+function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost, theme }) {
   const [newPost, setNewPost] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
@@ -3667,7 +3782,7 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
 // LEADERBOARD COMPONENT
 // ========================================
 
-function Leaderboard({ leaderboard, currentUser }) {
+function Leaderboard({ leaderboard, currentUser, theme }) {
   const medals = [THEME.gold, THEME.silver, THEME.bronze];
   
   return (
@@ -3802,10 +3917,867 @@ function Leaderboard({ leaderboard, currentUser }) {
 }
 
 // ========================================
+// HISTORY VIEW COMPONENT
+// ========================================
+
+function HistoryView({ currentUser, users, dailyLogs, theme }) {
+  const [timeRange, setTimeRange] = useState('week');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState(currentUser?.id || '');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  const isManager = currentUser?.role === 'manager';
+
+  // Calculate date range based on selected time range
+  const getDateRange = useCallback(() => {
+    const today = new Date();
+    let startDate, endDate;
+
+    switch (timeRange) {
+      case 'today':
+        startDate = endDate = getToday();
+        break;
+      case 'week':
+        startDate = getWeekStart();
+        endDate = getToday();
+        break;
+      case 'month':
+        startDate = getMonthStart();
+        endDate = getToday();
+        break;
+      case 'custom':
+        startDate = customStartDate || getToday();
+        endDate = customEndDate || getToday();
+        break;
+      default:
+        startDate = getWeekStart();
+        endDate = getToday();
+    }
+
+    return { startDate, endDate };
+  }, [timeRange, customStartDate, customEndDate]);
+
+  // Get data for selected user and date range
+  const historyData = useMemo(() => {
+    const { startDate, endDate } = getDateRange();
+    const userId = isManager && selectedUserId === 'all' ? null : (selectedUserId || currentUser?.id);
+
+    const dateArray = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
+      dateArray.push(dateStr);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return dateArray.map(date => {
+      let reviews = 0, demos = 0, callbacks = 0;
+
+      if (dailyLogs[date]) {
+        if (userId) {
+          // Single user
+          const userLog = dailyLogs[date][userId];
+          if (userLog) {
+            reviews = userLog.reviews || 0;
+            demos = userLog.demos || 0;
+            callbacks = userLog.callbacks || 0;
+          }
+        } else {
+          // All team (managers only)
+          Object.values(dailyLogs[date]).forEach(userLog => {
+            reviews += userLog.reviews || 0;
+            demos += userLog.demos || 0;
+            callbacks += userLog.callbacks || 0;
+          });
+        }
+      }
+
+      // Get goals (user's goals or sum of all users' goals)
+      let reviewsGoal = 0, demosGoal = 0, callbacksGoal = 0;
+      if (userId) {
+        const user = users.find(u => u.id === userId);
+        if (user?.goals) {
+          reviewsGoal = user.goals.reviews || 5;
+          demosGoal = user.goals.demos || 3;
+          callbacksGoal = user.goals.callbacks || 10;
+        }
+      } else {
+        users.forEach(user => {
+          if (user.goals) {
+            reviewsGoal += user.goals.reviews || 5;
+            demosGoal += user.goals.demos || 3;
+            callbacksGoal += user.goals.callbacks || 10;
+          }
+        });
+      }
+
+      return {
+        date,
+        reviews,
+        demos,
+        callbacks,
+        total: reviews + demos + callbacks,
+        goalsReviews: reviewsGoal,
+        goalsDemos: demosGoal,
+        goalsCallbacks: callbacksGoal,
+        goalsTotal: reviewsGoal + demosGoal + callbacksGoal,
+        goalsMet: reviews >= reviewsGoal && demos >= demosGoal && callbacks >= callbacksGoal,
+      };
+    }).reverse(); // Most recent first for the list
+  }, [dailyLogs, users, currentUser, selectedUserId, isManager, getDateRange]);
+
+  // Chart data (chronological order for chart)
+  const chartData = useMemo(() => {
+    return [...historyData].reverse().map(day => ({
+      date: formatDate(day.date),
+      Reviews: day.reviews,
+      Demos: day.demos,
+      Callbacks: day.callbacks,
+    }));
+  }, [historyData]);
+
+  // Period summary statistics
+  const periodStats = useMemo(() => {
+    const totalReviews = historyData.reduce((sum, day) => sum + day.reviews, 0);
+    const totalDemos = historyData.reduce((sum, day) => sum + day.demos, 0);
+    const totalCallbacks = historyData.reduce((sum, day) => sum + day.callbacks, 0);
+    const totalActivities = totalReviews + totalDemos + totalCallbacks;
+    const goalsMetCount = historyData.filter(day => day.goalsMet).length;
+    const totalDays = historyData.length;
+
+    let bestDay = null;
+    let bestDayTotal = 0;
+    historyData.forEach(day => {
+      if (day.total > bestDayTotal) {
+        bestDayTotal = day.total;
+        bestDay = day.date;
+      }
+    });
+
+    const avgPerDay = totalDays > 0 ? (totalActivities / totalDays).toFixed(1) : 0;
+
+    return {
+      totalReviews,
+      totalDemos,
+      totalCallbacks,
+      totalActivities,
+      goalsMetCount,
+      totalDays,
+      bestDay,
+      bestDayTotal,
+      avgPerDay,
+    };
+  }, [historyData]);
+
+  // Navigate to previous/next period
+  const navigatePeriod = (direction) => {
+    const { startDate, endDate } = getDateRange();
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+    if (direction === 'prev') {
+      start.setDate(start.getDate() - diff);
+      end.setDate(end.getDate() - diff);
+    } else {
+      start.setDate(start.getDate() + diff);
+      end.setDate(end.getDate() + diff);
+    }
+
+    setCustomStartDate(start.toISOString().split('T')[0]);
+    setCustomEndDate(end.toISOString().split('T')[0]);
+    setTimeRange('custom');
+  };
+
+  return (
+    <div>
+      <h2 style={{
+        margin: '0 0 20px 0',
+        fontSize: '24px',
+        fontWeight: '700',
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
+        Activity History
+      </h2>
+
+      {/* Time Range Selector */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+          }}>
+            {['today', 'week', 'month', 'custom'].map(range => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                style={{
+                  flex: range === 'custom' ? '0 0 auto' : 1,
+                  padding: '12px 16px',
+                  background: timeRange === range ? THEME.gradients.primary : THEME.secondary,
+                  border: 'none',
+                  borderRadius: '10px',
+                  color: timeRange === range ? THEME.white : THEME.text,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: timeRange === range ? THEME.shadows.md : 'none',
+                }}
+              >
+                {range === 'today' && 'Today'}
+                {range === 'week' && 'This Week'}
+                {range === 'month' && 'This Month'}
+                {range === 'custom' && 'Custom'}
+              </button>
+            ))}
+          </div>
+
+          {timeRange === 'custom' && (
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: '120px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  color: THEME.textLight,
+                  marginBottom: '4px',
+                  fontWeight: '600',
+                }}>
+                  From
+                </label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  max={getToday()}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: '120px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  color: THEME.textLight,
+                  marginBottom: '4px',
+                  fontWeight: '600',
+                }}>
+                  To
+                </label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  max={getToday()}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Previous/Next Navigation */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginTop: '12px',
+          }}>
+            <button
+              onClick={() => navigatePeriod('prev')}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() => navigatePeriod('next')}
+              disabled={getDateRange().endDate >= getToday()}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: getDateRange().endDate >= getToday() ? THEME.border : THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: getDateRange().endDate >= getToday() ? THEME.textLight : THEME.text,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: getDateRange().endDate >= getToday() ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+
+        {/* User Filter (Manager only) */}
+        {isManager && (
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '12px',
+              color: THEME.textLight,
+              marginBottom: '8px',
+              fontWeight: '600',
+            }}>
+              View Data For
+            </label>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `1px solid ${THEME.border}`,
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: '600',
+                background: THEME.white,
+                cursor: 'pointer',
+              }}
+            >
+              <option value="all">All Team</option>
+              {users.filter(u => u.role !== 'manager').map(user => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Category Filter */}
+        <div>
+          <label style={{
+            display: 'block',
+            fontSize: '12px',
+            color: THEME.textLight,
+            marginBottom: '8px',
+            fontWeight: '600',
+          }}>
+            Filter by Category
+          </label>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            flexWrap: 'wrap',
+          }}>
+            {['all', 'reviews', 'demos', 'callbacks'].map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                style={{
+                  flex: 1,
+                  minWidth: '70px',
+                  padding: '10px 12px',
+                  background: selectedCategory === cat ? THEME.gradients.primary : THEME.secondary,
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: selectedCategory === cat ? THEME.white : THEME.text,
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: selectedCategory === cat ? THEME.shadows.sm : 'none',
+                }}
+              >
+                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Period Summary Card */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <h3 style={{
+          margin: '0 0 20px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Period Summary
+        </h3>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: '16px',
+        }}>
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.primary,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.totalActivities}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Total Activities
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.success,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.goalsMetCount}/{periodStats.totalDays}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Goals Met
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.warning,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.avgPerDay}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Avg per Day
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.gold,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.bestDayTotal}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Best Day
+            </div>
+            {periodStats.bestDay && (
+              <div style={{ fontSize: '10px', color: THEME.textLight, marginTop: '2px' }}>
+                {formatDate(periodStats.bestDay)}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Trend Chart */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <h3 style={{
+          margin: '0 0 20px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Trend Over Time
+        </h3>
+
+        {chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={THEME.border} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: THEME.textLight }}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis tick={{ fontSize: 12, fill: THEME.textLight }} />
+              <Tooltip
+                contentStyle={{
+                  background: THEME.white,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  boxShadow: THEME.shadows.md,
+                }}
+              />
+              <Legend
+                wrapperStyle={{ paddingTop: '20px' }}
+                iconType="line"
+              />
+              {(selectedCategory === 'all' || selectedCategory === 'reviews') && (
+                <Line
+                  type="monotone"
+                  dataKey="Reviews"
+                  stroke={THEME.warning}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.warning, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+              {(selectedCategory === 'all' || selectedCategory === 'demos') && (
+                <Line
+                  type="monotone"
+                  dataKey="Demos"
+                  stroke={THEME.success}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.success, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+              {(selectedCategory === 'all' || selectedCategory === 'callbacks') && (
+                <Line
+                  type="monotone"
+                  dataKey="Callbacks"
+                  stroke={THEME.primary}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.primary, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{
+            textAlign: 'center',
+            padding: '60px 20px',
+            color: THEME.textLight,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              No data available
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Day-by-Day List */}
+      <div>
+        <h3 style={{
+          margin: '0 0 16px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Day-by-Day Breakdown
+        </h3>
+
+        {historyData.length > 0 ? (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {historyData.map((day, index) => {
+              const dayOfWeek = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' });
+              const hasActivity = day.total > 0;
+
+              return (
+                <div
+                  key={day.date}
+                  style={{
+                    background: THEME.white,
+                    borderRadius: '16px',
+                    padding: '20px',
+                    boxShadow: THEME.shadows.md,
+                    border: day.goalsMet ? `2px solid ${THEME.success}` : 'none',
+                    animation: `fadeInUp 0.3s ease-out ${index * 0.05}s both`,
+                    opacity: hasActivity ? 1 : 0.6,
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                  }}>
+                    <div>
+                      <div style={{
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        color: THEME.text,
+                        fontFamily: 'var(--font-display)',
+                      }}>
+                        {formatDate(day.date)}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: THEME.textLight,
+                        fontWeight: '600',
+                      }}>
+                        {dayOfWeek}
+                      </div>
+                    </div>
+
+                    {day.goalsMet && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 12px',
+                        background: THEME.gradients.success,
+                        borderRadius: '8px',
+                        color: THEME.white,
+                        fontSize: '12px',
+                        fontWeight: '700',
+                      }}>
+                        <span>★</span>
+                        Goals Met
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Category Breakdown */}
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {(selectedCategory === 'all' || selectedCategory === 'reviews') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Reviews
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.reviews >= day.goalsReviews ? THEME.success : THEME.danger,
+                          }}>
+                            {day.reviews} / {day.goalsReviews}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.reviews / day.goalsReviews) * 100, 100)}%`,
+                            background: day.reviews >= day.goalsReviews ? THEME.gradients.success : THEME.gradients.warning,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {(selectedCategory === 'all' || selectedCategory === 'demos') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Demos
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.demos >= day.goalsDemos ? THEME.success : THEME.danger,
+                          }}>
+                            {day.demos} / {day.goalsDemos}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.demos / day.goalsDemos) * 100, 100)}%`,
+                            background: day.demos >= day.goalsDemos ? THEME.gradients.success : THEME.gradients.success,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {(selectedCategory === 'all' || selectedCategory === 'callbacks') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Callbacks
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.callbacks >= day.goalsCallbacks ? THEME.success : THEME.danger,
+                          }}>
+                            {day.callbacks} / {day.goalsCallbacks}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.callbacks / day.goalsCallbacks) * 100, 100)}%`,
+                            background: day.callbacks >= day.goalsCallbacks ? THEME.gradients.success : THEME.gradients.primary,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasActivity && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '12px',
+                      background: THEME.secondary,
+                      borderRadius: '8px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      color: THEME.textLight,
+                      fontStyle: 'italic',
+                    }}>
+                      No activity recorded
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '16px',
+            padding: '60px 20px',
+            textAlign: 'center',
+            color: THEME.textLight,
+            boxShadow: THEME.shadows.md,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📅</div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No activity in this period
+            </div>
+            <div style={{ fontSize: '14px', color: THEME.textLight }}>
+              Try selecting a different time range
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
 // ACTIVE USERS LIST COMPONENT
 // ========================================
 
-function ActiveUsersList({ activeUsers, currentUser }) {
+function ActiveUsersList({ activeUsers, currentUser, theme }) {
   return (
     <div style={{
       background: THEME.white,
@@ -3981,7 +4953,7 @@ const formatInlineMarkdown = (text) => {
   return parts.length > 0 ? parts : text;
 };
 
-function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings }) {
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings, theme }) {
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -5300,7 +6272,7 @@ Keep responses conversational and concise for voice interaction.`,
 // TEAM VIEW COMPONENT (Manager Only)
 // ========================================
 
-function TeamView({ users, dailyLogs }) {
+function TeamView({ users, dailyLogs, theme }) {
   const today = getToday();
   
   return (
@@ -5424,7 +6396,7 @@ function TeamView({ users, dailyLogs }) {
 // ADMIN PANEL COMPONENT (Manager Only)
 // ========================================
 
-function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport }) {
+function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport, theme }) {
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('employee');
@@ -5761,7 +6733,7 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
 // REPORTS COMPONENT (Manager Only)
 // ========================================
 
-function Reports({ users, dailyLogs, appointments }) {
+function Reports({ users, dailyLogs, appointments, theme }) {
   const [timeRange, setTimeRange] = useState('week');
   
   const chartData = useMemo(() => {
@@ -5979,8 +6951,9 @@ function Reports({ users, dailyLogs, appointments }) {
 // SETTINGS COMPONENT
 // ========================================
 
-function SettingsPage({ settings, onSaveSettings }) {
-  const [localSettings, setLocalSettings] = useState(settings);
+function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
+  const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
+  const [localSettings, setLocalSettings] = useState({ ...settings, themeMode: currentThemeMode });
   const [showApiKey, setShowApiKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
@@ -5991,8 +6964,8 @@ function SettingsPage({ settings, onSaveSettings }) {
 
   // Update local settings when props change
   useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
+    setLocalSettings(prev => ({ ...prev, ...settings, themeMode: currentThemeMode }));
+  }, [settings, currentThemeMode]);
 
   // Fetch available models when API key is available
   useEffect(() => {
@@ -6701,7 +7674,7 @@ function SettingsPage({ settings, onSaveSettings }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Show Animations
@@ -6716,6 +7689,32 @@ function SettingsPage({ settings, onSaveSettings }) {
           >
             <div style={toggleKnobStyle(localSettings.appearance.showAnimations)} />
           </button>
+        </div>
+
+        <div>
+          <label style={labelStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sun size={14} />
+              Dark Mode
+            </div>
+          </label>
+          <select
+            value={localSettings.themeMode || 'system'}
+            onChange={(e) => {
+              setLocalSettings(prev => ({
+                ...prev,
+                themeMode: e.target.value
+              }));
+            }}
+            style={selectStyle}
+          >
+            <option value="system">System (Auto)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+            Choose your preferred theme. System option follows your device settings.
+          </p>
         </div>
       </div>
 
@@ -6825,13 +7824,15 @@ function SettingsPage({ settings, onSaveSettings }) {
 // BOTTOM NAVIGATION
 // ========================================
 
-function BottomNav({ activeView, onViewChange, isManager }) {
+function BottomNav({ activeView, onViewChange, isManager, theme }) {
+  const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', gradients: { cardHover: 'linear-gradient(135deg, rgba(0, 86, 164, 0.05) 0%, rgba(74, 144, 217, 0.05) 100%)', primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' }, shadows: { layered: '0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04)' } };
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Target, roles: ['employee', 'manager'] },
     { id: 'goals', label: 'Goals', icon: Target, roles: ['employee', 'manager'] },
     { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['employee', 'manager'] },
     { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
     { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
+    { id: 'history', label: 'History', icon: TrendingUp, roles: ['employee', 'manager'] },
     { id: 'chatbot', label: 'AI Coach', icon: Bot, roles: ['employee', 'manager'] },
     { id: 'settings', label: 'Settings', icon: Sliders, roles: ['employee', 'manager'] },
     { id: 'team', label: 'Team', icon: Users, roles: ['manager'] },
