@@ -64,6 +64,42 @@ const PRODUCT_INTERESTS = [
   { id: 'solar', label: 'Solar', color: '#F59E0B' },
 ];
 
+const APPOINTMENT_STATUS = [
+  { id: 'scheduled', label: 'Scheduled', color: '#0056A4', icon: Calendar },
+  { id: 'confirmed', label: 'Confirmed', color: '#28A745', icon: CheckCircle },
+  { id: 'in_progress', label: 'In Progress', color: '#FFC107', icon: Clock },
+  { id: 'completed', label: 'Completed', color: '#FFD700', icon: Check },
+  { id: 'cancelled', label: 'Cancelled', color: '#DC3545', icon: XCircle },
+  { id: 'no_show', label: 'No Show', color: '#6B7280', icon: AlertCircle },
+  { id: 'rescheduled', label: 'Rescheduled', color: '#17A2B8', icon: RefreshCw },
+  { id: 'followup_needed', label: 'Follow-up Needed', color: '#FF8C00', icon: Phone },
+];
+
+const APPOINTMENT_OUTCOMES = [
+  { id: 'sale', label: 'Sale', color: '#28A745' },
+  { id: 'no_sale', label: 'No Sale', color: '#6B7280' },
+  { id: 'callback_needed', label: 'Callback Needed', color: '#FF8C00' },
+  { id: 'proposal_sent', label: 'Proposal Sent', color: '#17A2B8' },
+  { id: 'thinking_it_over', label: 'Thinking It Over', color: '#9333EA' },
+];
+
+const TIME_SLOTS = Array.from({ length: 20 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 8;
+  const minute = i % 2 === 0 ? '00' : '30';
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour;
+  return `${displayHour}:${minute} ${period}`;
+});
+
+const DURATIONS = [
+  { value: 30, label: '30 minutes' },
+  { value: 60, label: '1 hour' },
+  { value: 90, label: '1.5 hours' },
+  { value: 120, label: '2 hours' },
+  { value: 180, label: '3 hours' },
+  { value: 240, label: '4 hours' },
+];
+
 // ========================================
 // VALIDATION UTILITIES
 // ========================================
@@ -263,6 +299,17 @@ export default function WindowDepotTracker() {
   const [dailyLogs, setDailyLogs] = useState({});
   const [appointments, setAppointments] = useState([]);
   const [feed, setFeed] = useState([]);
+  const [feedReactions, setFeedReactions] = useState({});
+  const [feedFilters, setFeedFilters] = useState({
+    type: 'all',
+    sortBy: 'recent',
+    userId: null,
+    search: '',
+    showOnlyLiked: false,
+    showOnlyMine: false,
+  });
+  const [pinnedPosts, setPinnedPosts] = useState({});
+  const [unreadPosts, setUnreadPosts] = useState(new Set());
   const [activeView, setActiveView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -2095,6 +2142,7 @@ export default function WindowDepotTracker() {
               onDecrement={handleDecrement}
               dailyLogs={dailyLogs}
               theme={currentTheme}
+              showToast={showToast}
             />
             <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} theme={currentTheme} />
           </div>
@@ -2480,7 +2528,7 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // DASHBOARD COMPONENT
 // ========================================
 
-function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme }) {
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme, showToast }) {
   const THEME = theme;
   const [celebratingCategory, setCelebratingCategory] = useState(null);
   const [undoHistory, setUndoHistory] = useState([]);
