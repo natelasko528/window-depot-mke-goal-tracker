@@ -2469,7 +2469,7 @@ export default function WindowDepotTracker() {
         )}
         
         {activeView === 'leaderboard' && (
-          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} theme={currentTheme} />
+          <Leaderboard users={users} dailyLogs={dailyLogs} currentUser={currentUser} theme={currentTheme} />
         )}
 
         {activeView === 'history' && (
@@ -4671,22 +4671,190 @@ function Feed({
 // LEADERBOARD COMPONENT
 // ========================================
 
-function Leaderboard({ leaderboard, currentUser, theme }) {
+function Leaderboard({ users, dailyLogs, currentUser, theme }) {
   const THEME = theme;
+  const [timeframe, setTimeframe] = useState('week');
+  const [category, setCategory] = useState('overall');
+
+  // Calculate leaderboard based on selected timeframe and category
+  const leaderboard = useMemo(() => {
+    // Determine date range
+    let startDate;
+    const today = getToday();
+
+    switch (timeframe) {
+      case 'today':
+        startDate = today;
+        break;
+      case 'week':
+        startDate = getWeekStart();
+        break;
+      case 'month':
+        startDate = getMonthStart();
+        break;
+      case 'alltime':
+        startDate = '2000-01-01'; // Far past date
+        break;
+      default:
+        startDate = getWeekStart();
+    }
+
+    // Calculate scores
+    const scores = users.map(user => {
+      let reviews = 0, demos = 0, callbacks = 0;
+
+      Object.entries(dailyLogs).forEach(([date, usersData]) => {
+        if (date >= startDate && usersData[user.id]) {
+          reviews += (usersData[user.id].reviews || 0);
+          demos += (usersData[user.id].demos || 0);
+          callbacks += (usersData[user.id].callbacks || 0);
+        }
+      });
+
+      let total;
+      if (category === 'reviews') total = reviews;
+      else if (category === 'demos') total = demos;
+      else if (category === 'callbacks') total = callbacks;
+      else total = reviews + demos + callbacks;
+
+      return { ...user, total, reviews, demos, callbacks };
+    });
+
+    return scores.sort((a, b) => b.total - a.total);
+  }, [users, dailyLogs, timeframe, category]);
+
   const medals = [THEME.gold, THEME.silver, THEME.bronze];
-  
+  const medalGradients = [
+    THEME.gradients.gold,
+    'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
+    'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
+  ];
+
+  const currentUserRank = leaderboard.findIndex(u => u.id === currentUser?.id) + 1;
+  const leaderTotal = leaderboard[0]?.total || 0;
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
+      <h2 style={{
+        margin: '0 0 20px 0',
+        fontSize: '24px',
+        fontWeight: '700',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
-        Weekly Leaderboard
+        Leaderboard
       </h2>
-      
+
+      {/* Timeframe Selector */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '6px',
+        marginBottom: '16px',
+        display: 'flex',
+        gap: '6px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        {[
+          { id: 'today', label: 'Today' },
+          { id: 'week', label: 'This Week' },
+          { id: 'month', label: 'This Month' },
+          { id: 'alltime', label: 'All Time' },
+        ].map(tf => (
+          <button
+            key={tf.id}
+            onClick={() => setTimeframe(tf.id)}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              background: timeframe === tf.id ? THEME.gradients.primary : 'transparent',
+              border: 'none',
+              borderRadius: '8px',
+              color: timeframe === tf.id ? THEME.white : THEME.text,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            {tf.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Category Tabs */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '6px',
+        marginBottom: '16px',
+        display: 'flex',
+        gap: '6px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        {[
+          { id: 'overall', label: 'Overall', icon: '🏆' },
+          { id: 'reviews', label: 'Reviews', icon: '⭐' },
+          { id: 'demos', label: 'Demos', icon: '📅' },
+          { id: 'callbacks', label: 'Callbacks', icon: '📞' },
+        ].map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => setCategory(cat.id)}
+            style={{
+              flex: 1,
+              padding: '10px 12px',
+              background: category === cat.id ? THEME.gradients.success : 'transparent',
+              border: 'none',
+              borderRadius: '8px',
+              color: category === cat.id ? THEME.white : THEME.text,
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            <div>{cat.icon}</div>
+            <div style={{ fontSize: '11px', marginTop: '2px' }}>{cat.label}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Current User Stats */}
+      {currentUser && currentUserRank > 0 && (
+        <div style={{
+          background: THEME.gradients.primary,
+          borderRadius: '12px',
+          padding: '16px',
+          marginBottom: '16px',
+          color: THEME.white,
+          boxShadow: THEME.shadows.md,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Your Rank</div>
+              <div style={{ fontSize: '24px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
+                #{currentUserRank}
+              </div>
+            </div>
+            {currentUserRank > 1 && leaderboard[0] && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Behind Leader</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
+                  {leaderTotal - (leaderboard.find(u => u.id === currentUser.id)?.total || 0)}
+                </div>
+              </div>
+            )}
+            {currentUserRank === 1 && (
+              <div style={{ fontSize: '28px' }}>👑</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard List */}
       <div style={{ display: 'grid', gap: '12px' }}>
         {leaderboard.length === 0 ? (
           <div style={{
@@ -4697,12 +4865,7 @@ function Leaderboard({ leaderboard, currentUser, theme }) {
             color: THEME.textLight,
             boxShadow: THEME.shadows.md,
           }}>
-            <div style={{
-              fontSize: '48px',
-              marginBottom: '16px',
-            }}>
-              🏆
-            </div>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🏆</div>
             <div style={{
               fontSize: '18px',
               fontWeight: '600',
@@ -4710,39 +4873,30 @@ function Leaderboard({ leaderboard, currentUser, theme }) {
               marginBottom: '8px',
               fontFamily: 'var(--font-display)',
             }}>
-              No activity this week yet
+              No activity yet
             </div>
-            <div style={{
-              fontSize: '14px',
-              color: THEME.textLight,
-            }}>
+            <div style={{ fontSize: '14px', color: THEME.textLight }}>
               Start tracking to see rankings!
             </div>
           </div>
         ) : (
           leaderboard.map((user, index) => {
             const isTopThree = index < 3;
-            const isCurrentUser = user.id === currentUser.id;
-            const medalGradients = [
-              THEME.gradients.gold,
-              'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
-              'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
-            ];
-            
+            const isCurrentUser = user.id === currentUser?.id;
+            const prevRank = index; // Could track previous rankings for trend arrows
+
             return (
               <div
                 key={user.id}
                 style={{
-                  background: isCurrentUser 
-                    ? THEME.gradients.cardHover 
-                    : THEME.white,
+                  background: isCurrentUser ? THEME.gradients.cardHover : THEME.white,
                   borderRadius: '16px',
                   padding: '20px',
                   boxShadow: isTopThree ? THEME.shadows.layered : THEME.shadows.md,
-                  border: isCurrentUser 
-                    ? `2px solid ${THEME.primary}` 
-                    : isTopThree 
-                      ? `2px solid ${medals[index]}` 
+                  border: isCurrentUser
+                    ? `2px solid ${THEME.primary}`
+                    : isTopThree
+                      ? `2px solid ${medals[index]}`
                       : `1px solid ${THEME.border}`,
                   animation: `fadeInUp 0.4s ease-out ${index * 0.1}s both`,
                   transform: isTopThree ? 'scale(1.02)' : 'scale(1)',
@@ -4767,34 +4921,105 @@ function Leaderboard({ leaderboard, currentUser, theme }) {
                     {isTopThree ? ['🥇', '🥈', '🥉'][index] : index + 1}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ 
-                      fontSize: '17px', 
-                      fontWeight: '700', 
+                    <div style={{
+                      fontSize: '17px',
+                      fontWeight: '700',
                       color: THEME.text,
                       fontFamily: 'var(--font-display)',
                       marginBottom: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
                     }}>
                       {user.name}
                       {isCurrentUser && ' (You)'}
                     </div>
-                    <div style={{ 
-                      fontSize: '13px', 
+                    <div style={{
+                      fontSize: '13px',
                       color: THEME.textLight,
                       fontFamily: 'var(--font-body)',
                     }}>
                       {user.role === 'manager' ? 'Manager' : 'Employee'}
                     </div>
+
+                    {/* Category Breakdown Mini Chart */}
+                    {category === 'overall' && (
+                      <div style={{ marginTop: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        {user.reviews > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.reviews / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.warning,
+                              borderRadius: '2px',
+                            }} />
+                            {user.reviews}
+                          </div>
+                        )}
+                        {user.demos > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.demos / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.success,
+                              borderRadius: '2px',
+                            }} />
+                            {user.demos}
+                          </div>
+                        )}
+                        {user.callbacks > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.callbacks / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.primary,
+                              borderRadius: '2px',
+                            }} />
+                            {user.callbacks}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ 
-                    fontSize: '28px', 
-                    fontWeight: '700', 
-                    background: THEME.gradients.primary,
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    fontFamily: 'var(--font-mono)',
-                  }}>
-                    {user.weeklyTotal}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{
+                      fontSize: '28px',
+                      fontWeight: '700',
+                      background: THEME.gradients.primary,
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {user.total}
+                    </div>
+                    {index > 0 && leaderboard[index - 1] && (
+                      <div style={{
+                        fontSize: '11px',
+                        color: THEME.textLight,
+                        marginTop: '2px',
+                      }}>
+                        -{leaderboard[index - 1].total - user.total} behind
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
