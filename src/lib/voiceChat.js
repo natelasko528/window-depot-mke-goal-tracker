@@ -326,9 +326,7 @@ class VoiceChatSession {
                   prefixPaddingMs: this.voiceChatSettings.prefixPaddingMs || 100,
                 },
               },
-              inputAudioTranscription: {
-                languageCode: 'en-US',
-              },
+              inputAudioTranscription: {}, // Empty object enables transcription, language inferred from speechConfig
               systemInstruction: {
                 parts: [{ text: this.systemInstruction }],
               },
