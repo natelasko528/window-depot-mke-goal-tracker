@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { 
@@ -3774,12 +3774,40 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
     };
   }, []);
 
+  // Auto-start listening when voice session becomes ready
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (voiceStatus === 'ready' && voiceSessionRef.current && !autoStartedRef.current) {
+      // Small delay to ensure connection is fully stable
+      const timer = setTimeout(async () => {
+        try {
+          await voiceSessionRef.current.startListening();
+          autoStartedRef.current = true;
+        } catch (error) {
+          console.error('Auto-start listening failed:', error);
+          setVoiceError(error.message || 'Failed to start listening');
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    // Reset auto-start flag when disconnected
+    if (voiceStatus === 'disconnected') {
+      autoStartedRef.current = false;
+    }
+  }, [voiceStatus]);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || !isAIConfigured()) return;
 
     // If voice session is active, send text via Live API
     if (voiceSessionRef.current && voiceStatus !== 'disconnected') {
       try {
+        // If AI is speaking, interrupt it before sending text
+        if (voiceStatus === 'processing') {
+          voiceSessionRef.current.interrupt();
+          setVoiceStatus('ready');
+        }
+        
         const userMessage = {
           id: `user-${Date.now()}`,
           role: 'user',
@@ -4020,12 +4048,13 @@ Keep responses conversational and concise for voice interaction.`,
 
   const getStatusText = () => {
     switch (voiceStatus) {
+      case 'disconnected': return 'Disconnected';
       case 'connecting': return 'Connecting...';
       case 'connected': return 'Connected, setting up...';
-      case 'ready': return 'Ready - Tap microphone to speak';
+      case 'ready': return 'Ready';
       case 'listening': return 'Listening...';
       case 'processing': return 'AI is responding...';
-      default: return '';
+      default: return 'Disconnected';
     }
   };
 
@@ -4057,18 +4086,79 @@ Keep responses conversational and concise for voice interaction.`,
               {remainingRequests} requests/min
             </div>
           )}
+          <div style={{ 
+            fontSize: '12px', 
+            color: getStatusColor(), 
+            fontWeight: '600',
+            padding: '6px 12px',
+            background: voiceStatus === 'disconnected' ? 'rgba(108, 117, 125, 0.1)' : voiceStatus === 'listening' ? 'rgba(40, 167, 69, 0.1)' : voiceStatus === 'processing' ? 'rgba(255, 193, 7, 0.1)' : 'rgba(0, 123, 255, 0.1)',
+            borderRadius: '6px',
+            transition: 'all 0.2s ease'
+          }}>
+            {getStatusText()}
+          </div>
+          {voiceStatus === 'processing' && voiceSessionRef.current && (
+            <button
+              onClick={() => {
+                if (voiceSessionRef.current) {
+                  voiceSessionRef.current.interrupt();
+                  setVoiceStatus('ready');
+                }
+              }}
+              style={{
+                padding: '6px 10px',
+                background: THEME.warning,
+                color: THEME.white,
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '12px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#e0a800';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = THEME.warning;
+              }}
+              title="Interrupt AI speech"
+            >
+              <Square size={14} />
+              Interrupt
+            </button>
+          )}
           {voiceStatus !== 'disconnected' && (
-            <div style={{ 
-              fontSize: '12px', 
-              color: getStatusColor(), 
-              fontWeight: '600',
-              padding: '6px 12px',
-              background: voiceStatus === 'listening' ? 'rgba(40, 167, 69, 0.1)' : voiceStatus === 'processing' ? 'rgba(255, 193, 7, 0.1)' : 'rgba(0, 123, 255, 0.1)',
-              borderRadius: '6px',
-              transition: 'all 0.2s ease'
-            }}>
-              {getStatusText()}
-            </div>
+            <button
+              onClick={handleEndVoiceChat}
+              style={{
+                padding: '6px 10px',
+                background: THEME.danger,
+                color: THEME.white,
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '12px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#c82333';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = THEME.danger;
+              }}
+              title="Stop voice chat"
+            >
+              <X size={14} />
+              Stop
+            </button>
           )}
           <button
             onClick={() => setShowChatSettings(!showChatSettings)}
@@ -5693,6 +5783,7 @@ function SettingsPage({ settings, onSaveSettings }) {
               >
                 <option value="START_SENSITIVITY_UNSPECIFIED">Default - Balanced detection</option>
                 <option value="START_SENSITIVITY_LOW">Low - More tolerant, needs clear speech</option>
+                <option value="START_SENSITIVITY_MEDIUM">Medium - Moderate sensitivity</option>
                 <option value="START_SENSITIVITY_HIGH">High - Detects soft speech easily</option>
               </select>
               <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
@@ -5712,6 +5803,7 @@ function SettingsPage({ settings, onSaveSettings }) {
               >
                 <option value="END_SENSITIVITY_UNSPECIFIED">Default - Balanced detection</option>
                 <option value="END_SENSITIVITY_LOW">Low - Waits longer before ending turn</option>
+                <option value="END_SENSITIVITY_MEDIUM">Medium - Moderate sensitivity</option>
                 <option value="END_SENSITIVITY_HIGH">High - Ends turn quickly after pause</option>
               </select>
               <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
