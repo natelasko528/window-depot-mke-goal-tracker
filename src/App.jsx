@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { getTheme, listenToSystemThemeChanges } from './lib/theme';
@@ -397,6 +397,9 @@ export default function WindowDepotTracker() {
   });
   const [themeMode, setThemeMode] = useState('system');
   const [dailySnapshots, setDailySnapshots] = useState({});
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
 
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
@@ -8180,6 +8183,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
   const [liveModels, setLiveModels] = useState(LIVE_MODELS_FALLBACK);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState(null);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
 
   // Update local settings when props change
   useEffect(() => {
@@ -8908,6 +8912,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Appearance Settings */}
       <div style={sectionStyle}>
