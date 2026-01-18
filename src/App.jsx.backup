@@ -42,22 +42,6 @@ import {
   getLocalSnapshots,
 } from './lib/snapshots';
 import DebugLogger from './components/DebugLogger';
-import OnboardingFlow from './components/OnboardingFlow';
-import {
-  debounce,
-  throttle,
-  VirtualScroller,
-  memoize,
-  scheduleIdleTask
-} from './lib/performance';
-import {
-  ariaLabels,
-  accessibilityAnnouncer,
-  prefersReducedMotion,
-  focusManagement,
-  keyboardNav,
-  createSkipLink
-} from './lib/accessibility';
 
 // ========================================
 // CONSTANTS
@@ -369,6 +353,8 @@ export default function WindowDepotTracker() {
   });
   const [themeMode, setThemeMode] = useState('system');
   const [dailySnapshots, setDailySnapshots] = useState({});
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(prefersReducedMotion());
 
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
@@ -580,82 +566,6 @@ export default function WindowDepotTracker() {
   // ========================================
 
   const currentTheme = useMemo(() => getTheme(themeMode), [themeMode]);
-  // ========================================
-  // ONBOARDING CHECK
-  // ========================================
-
-  useEffect(() => {
-    if (!isInitialized || isLoading || currentUser) return;
-
-    const onboardingComplete = localStorage.getItem('onboarding_completed');
-    if (!onboardingComplete) {
-      setShowOnboarding(true);
-    }
-  }, [isInitialized, isLoading, currentUser]);
-
-  // ========================================
-  // REDUCED MOTION DETECTION
-  // ========================================
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const handleChange = (e) => {
-      setReduceMotion(e.matches);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  // ========================================
-  // ACCESSIBILITY & KEYBOARD SHORTCUTS
-  // ========================================
-
-  useEffect(() => {
-    createSkipLink();
-
-    const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
-        switch (e.key.toLowerCase()) {
-          case 'd':
-            e.preventDefault();
-            setActiveView('dashboard');
-            accessibilityAnnouncer.announce('Switched to Dashboard');
-            break;
-          case 'g':
-            e.preventDefault();
-            setActiveView('goals');
-            accessibilityAnnouncer.announce('Switched to Goals');
-            break;
-          case 'a':
-            e.preventDefault();
-            setActiveView('appointments');
-            accessibilityAnnouncer.announce('Switched to Appointments');
-            break;
-          case 'f':
-            e.preventDefault();
-            setActiveView('feed');
-            accessibilityAnnouncer.announce('Switched to Feed');
-            break;
-          case 'l':
-            e.preventDefault();
-            setActiveView('leaderboard');
-            accessibilityAnnouncer.announce('Switched to Leaderboard');
-            break;
-          default:
-            break;
-        }
-      } else if (e.key === 'Escape' && showOnboarding) {
-        setShowOnboarding(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      accessibilityAnnouncer.cleanup();
-    };
-  }, [showOnboarding]);
 
   // ========================================
   // REAL-TIME SUBSCRIPTIONS
@@ -2909,9 +2819,11 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
     // Time of day insights
     if (hour < 12 && weekStats.reviews < currentUser.goals.reviews * 2) {
-      insights.push("You're usually more productive in the morning - start strong!");
+      insights.push("🌅 You are usually more productive in the morning - start strong!");
     } else if (hour >= 14 && hour < 17 && todayStats.reviews === 0) {
-      insights.push("Afternoon slump? Time to get some reviews done!");
+      insights.push("⚡ Afternoon slump? Time to get some reviews done!");
+    } else if (hour >= 17) {
+      insights.push("🎯 Evening push! You can knock out a few more before the day ends!");
     }
 
     // Category performance
@@ -2925,6 +2837,33 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
     if (callbackRatio < 0.3 && weekStats.callbacks > 0) {
       insights.push("Callbacks are trailing. Consider a callback blitz!");
+    }
+
+    // Streak motivation
+    if (calculateStreaks.currentStreak > 0) {
+      if (calculateStreaks.currentStreak === 1) {
+        insights.push("🔥 You started your streak! Keep it alive today!");
+      } else if (calculateStreaks.currentStreak >= 7) {
+        insights.push(`🏆 Amazing! ${calculateStreaks.currentStreak}-day streak going! Don't break it now!`);
+      } else {
+        insights.push(`🔥 ${calculateStreaks.currentStreak}-day streak! One more day to beat your record?`);
+      }
+    } else if (calculateStreaks.bestStreak > 0) {
+      insights.push(`📈 You've done ${calculateStreaks.bestStreak} days before - start a new streak today!`);
+    }
+
+    // Almost there messages
+    if (reviewRatio > 0.8 && reviewRatio < 1) {
+      const remaining = currentUser.goals.reviews - todayStats.reviews;
+      insights.push(`⏰ Just ${remaining} more review${remaining !== 1 ? 's' : ''} to hit your goal!`);
+    }
+    if (demoRatio > 0.8 && demoRatio < 1) {
+      const remaining = currentUser.goals.demos - todayStats.demos;
+      insights.push(`⏰ Just ${remaining} more demo${remaining !== 1 ? 's' : ''} to hit your goal!`);
+    }
+    if (callbackRatio > 0.8 && callbackRatio < 1) {
+      const remaining = currentUser.goals.callbacks - todayStats.callbacks;
+      insights.push(`⏰ Just ${remaining} more callback${remaining !== 1 ? 's' : ''} to hit your goal!`);
     }
 
     if (reviewRatio >= 1 && demoRatio >= 1 && callbackRatio >= 1) {
@@ -7926,64 +7865,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
         Settings
       </h2>
 
-      {/* Settings Tabs Navigation */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        marginBottom: '24px',
-        overflowX: 'auto',
-        paddingBottom: '8px',
-        WebkitOverflowScrolling: 'touch',
-      }}>
-        {[
-          { id: 'ai', label: 'AI Coach', icon: Bot },
-          { id: 'notifications', label: 'Notifications', icon: Bell },
-          { id: 'privacy', label: 'Privacy', icon: Shield },
-          { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
-          { id: 'appearance', label: 'Appearance', icon: Palette },
-          { id: 'integrations', label: 'Integrations', icon: Package },
-        ].map(tab => {
-          const TabIcon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSettingsTab(tab.id)}
-              style={{
-                padding: '10px 16px',
-                background: activeSettingsTab === tab.id ? THEME.primary : THEME.secondary,
-                color: activeSettingsTab === tab.id ? THEME.white : THEME.text,
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: activeSettingsTab === tab.id ? '600' : '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s ease',
-                flexShrink: 0,
-              }}
-              onMouseEnter={(e) => {
-                if (activeSettingsTab !== tab.id) {
-                  e.currentTarget.style.background = 'rgba(0,123,255,0.08)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeSettingsTab !== tab.id) {
-                  e.currentTarget.style.background = THEME.secondary;
-                }
-              }}
-            >
-              <TabIcon size={14} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* AI Settings Section */}
-      {activeSettingsTab === 'ai' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
