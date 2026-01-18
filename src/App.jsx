@@ -4097,69 +4097,6 @@ Keep responses conversational and concise for voice interaction.`,
           }}>
             {getStatusText()}
           </div>
-          {voiceStatus === 'processing' && voiceSessionRef.current && (
-            <button
-              onClick={() => {
-                if (voiceSessionRef.current) {
-                  voiceSessionRef.current.interrupt();
-                  setVoiceStatus('ready');
-                }
-              }}
-              style={{
-                padding: '6px 10px',
-                background: THEME.warning,
-                color: THEME.white,
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '12px',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e0a800';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = THEME.warning;
-              }}
-              title="Interrupt AI speech"
-            >
-              <Square size={14} />
-              Interrupt
-            </button>
-          )}
-          {voiceStatus !== 'disconnected' && (
-            <button
-              onClick={handleEndVoiceChat}
-              style={{
-                padding: '6px 10px',
-                background: THEME.danger,
-                color: THEME.white,
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '12px',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#c82333';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = THEME.danger;
-              }}
-              title="Stop voice chat"
-            >
-              <X size={14} />
-              Stop
-            </button>
-          )}
           <button
             onClick={() => setShowChatSettings(!showChatSettings)}
             style={{
@@ -4694,6 +4631,71 @@ Keep responses conversational and concise for voice interaction.`,
                 ) : (
                   <Mic size={20} color={THEME.white} />
                 )}
+              </button>
+            )}
+            {/* Interrupt Button - Show when AI is speaking */}
+            {voiceStatus === 'processing' && voiceSessionRef.current && (
+              <button
+                onClick={() => {
+                  if (voiceSessionRef.current) {
+                    voiceSessionRef.current.interrupt();
+                    setVoiceStatus('ready');
+                  }
+                }}
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '8px',
+                  background: THEME.warning,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 8px rgba(255, 193, 7, 0.25)',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e0a800';
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = THEME.warning;
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+                title="Interrupt AI speech"
+              >
+                <Square size={18} color={THEME.white} />
+              </button>
+            )}
+            {/* Stop Button - Show when voice chat is active */}
+            {voiceStatus !== 'disconnected' && (
+              <button
+                onClick={handleEndVoiceChat}
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '8px',
+                  background: THEME.danger,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 8px rgba(220, 53, 69, 0.25)',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#c82333';
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = THEME.danger;
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+                title="Stop voice chat"
+              >
+                <X size={18} color={THEME.white} />
               </button>
             )}
             {/* Send Button */}
