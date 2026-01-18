@@ -19,17 +19,6 @@ const formatDateString = (date) => {
 };
 
 /**
- * Determine if goals were met for a given day
- */
-const checkGoalsMet = (categories, logs) => {
-  return categories.every(cat => {
-    const count = logs[cat.id] || 0;
-    const goal = cat.goal || 0;
-    return count >= goal;
-  });
-};
-
-/**
  * Create a daily snapshot for a specific date and user
  * @param {string} date - Date in YYYY-MM-DD format
  * @param {string} userId - User ID

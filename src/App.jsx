@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Moon, Sun } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { getTheme, getSystemThemePreference, listenToSystemThemeChanges } from './lib/theme';
+import { getTheme, listenToSystemThemeChanges } from './lib/theme';
 import { 
   syncAllFromSupabase, 
   queueSyncOperation, 
@@ -37,7 +37,6 @@ import {
   VOICE_OPTIONS
 } from './lib/voiceChat';
 import {
-  createDailySnapshot,
   ensureDailySnapshots,
   initializeSnapshots,
   getLocalSnapshots,
@@ -313,7 +312,6 @@ export default function WindowDepotTracker() {
   const initAttempts = useRef(0);
   const subscriptionsRef = useRef([]);
   const presenceChannelRef = useRef(null);
-  const lastSnapshotDateRef = useRef(null);
   
   // ========================================
   // INITIALIZATION & DATA LOADING
@@ -797,6 +795,7 @@ export default function WindowDepotTracker() {
     };
 
     ensureSnapshots();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialized, users.length, Object.keys(dailyLogs).length]);
 
   // ========================================
@@ -2237,7 +2236,6 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
         width: '100%',
         boxShadow: THEME.shadows.xl,
         border: `1px solid ${THEME.border}`,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
       }}>
         <div style={{
           textAlign: 'center',
@@ -3890,7 +3888,6 @@ function HistoryView({ currentUser, users, dailyLogs, theme }) {
 
   // Calculate date range based on selected time range
   const getDateRange = useCallback(() => {
-    const today = new Date();
     let startDate, endDate;
 
     switch (timeRange) {
@@ -6741,6 +6738,7 @@ function Reports({ users, dailyLogs, appointments, theme }) {
       { name: 'Demos', value: data.demos, color: THEME.success },
       { name: 'Callbacks', value: data.callbacks, color: THEME.primary },
     ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dailyLogs, timeRange]);
   
   return (
