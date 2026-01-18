@@ -57,6 +57,33 @@ const THEME = {
   gold: '#FFD700',
   silver: '#C0C0C0',
   bronze: '#CD7F32',
+  
+  // Expanded color palette with gradients
+  gradients: {
+    primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)',
+    success: 'linear-gradient(135deg, #28A745 0%, #5CB85C 100%)',
+    warning: 'linear-gradient(135deg, #FFC107 0%, #FFD700 100%)',
+    danger: 'linear-gradient(135deg, #DC3545 0%, #E74C3C 100%)',
+    gold: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+    background: 'linear-gradient(135deg, #F5F7FA 0%, #E8F4FD 100%)',
+    cardHover: 'linear-gradient(135deg, rgba(0, 86, 164, 0.05) 0%, rgba(74, 144, 217, 0.05) 100%)',
+  },
+  
+  // Additional accent colors
+  accentColors: {
+    purple: '#9333EA',
+    teal: '#17A2B8',
+    orange: '#F59E0B',
+  },
+  
+  // Shadow variants for depth
+  shadows: {
+    sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+    md: '0 2px 8px rgba(0, 0, 0, 0.08)',
+    lg: '0 4px 16px rgba(0, 0, 0, 0.12)',
+    xl: '0 8px 32px rgba(0, 0, 0, 0.16)',
+    layered: '0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04)',
+  },
 };
 
 const CATEGORIES = [
@@ -231,6 +258,32 @@ const formatDate = (dateString) => {
   if (!dateString) return '';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+// Human-readable relative time formatting
+const formatRelativeTime = (timestamp) => {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (seconds < 60) return 'Just now';
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} ${Math.floor(days / 7) === 1 ? 'week' : 'weeks'} ago`;
+  
+  // Fall back to formatted date for older posts
+  const date = new Date(timestamp);
+  const isThisYear = date.getFullYear() === new Date().getFullYear();
+  if (isThisYear) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
@@ -2309,64 +2362,121 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // ========================================
 
 function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement }) {
+  const [celebratingCategory, setCelebratingCategory] = useState(null);
+  
+  const handleIncrement = (categoryId) => {
+    onIncrement(categoryId);
+    const newCount = (todayStats[categoryId] || 0) + 1;
+    const goal = currentUser.goals[categoryId];
+    if (newCount >= goal) {
+      setCelebratingCategory(categoryId);
+      setTimeout(() => setCelebratingCategory(null), 2000);
+    }
+  };
+  
   return (
     <div>
-      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+      <h2 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '24px', 
+        fontWeight: '700', 
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
         Today's Progress
       </h2>
       
       <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
-        {CATEGORIES.map(category => {
+        {CATEGORIES.map((category, index) => {
           const count = todayStats[category.id] || 0;
           const goal = currentUser.goals[category.id];
           const progress = (count / goal) * 100;
           const Icon = category.icon;
+          const isGoalReached = count >= goal;
+          const isCelebrating = celebratingCategory === category.id;
+          
+          // Determine gradient based on category
+          let gradient = category.color;
+          if (category.id === 'reviews') gradient = THEME.gradients.warning;
+          else if (category.id === 'demos') gradient = THEME.gradients.success;
+          else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
           
           return (
             <div
               key={category.id}
               style={{
                 background: THEME.white,
-                borderRadius: '12px',
-                padding: '20px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                borderRadius: '16px',
+                padding: '24px',
+                boxShadow: isGoalReached ? THEME.shadows.layered : THEME.shadows.md,
+                border: isGoalReached ? `2px solid ${category.color}` : 'none',
+                transform: isCelebrating ? 'scale(1.02)' : 'scale(1)',
+                transition: 'all 0.3s ease',
+                animation: isCelebrating ? 'bounce 0.6s ease-in-out' : 'none',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
                 <div style={{
-                  width: '48px',
-                  height: '48px',
-                  background: category.color,
-                  borderRadius: '12px',
+                  width: '52px',
+                  height: '52px',
+                  background: gradient,
+                  borderRadius: '14px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  boxShadow: THEME.shadows.md,
+                  transform: isCelebrating ? 'rotate(360deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.6s ease',
                 }}>
-                  <Icon size={24} color={THEME.white} />
+                  <Icon size={26} color={THEME.white} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                  <div style={{ 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: THEME.text,
+                    fontFamily: 'var(--font-body)',
+                  }}>
                     {category.name}
                   </div>
-                  <div style={{ fontSize: '24px', fontWeight: '700', color: category.color }}>
+                  <div style={{ 
+                    fontSize: '28px', 
+                    fontWeight: '700', 
+                    background: gradient,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    fontFamily: 'var(--font-mono)',
+                    letterSpacing: '-0.5px',
+                  }}>
                     {count} / {goal}
                   </div>
                 </div>
+                {isGoalReached && (
+                  <div style={{
+                    fontSize: '24px',
+                    animation: 'pulse 2s infinite',
+                  }}>
+                    🎉
+                  </div>
+                )}
               </div>
               
               <div style={{
-                height: '12px',
+                height: '14px',
                 background: THEME.secondary,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 overflow: 'hidden',
                 marginBottom: '16px',
-                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)',
               }}>
                 <div style={{
                   height: '100%',
                   width: `${Math.min(progress, 100)}%`,
-                  background: category.color,
-                  transition: 'width 0.3s ease',
+                  background: gradient,
+                  transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  borderRadius: '8px',
+                  boxShadow: progress >= 100 ? `0 0 12px ${category.color}40` : 'none',
                 }} />
               </div>
               
@@ -2374,12 +2484,18 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                 <button
                   onClick={() => onDecrement(category.id)}
                   disabled={count === 0}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'scale(0.95)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
                   style={{
                     flex: 1,
                     padding: '18px',
-                    background: count === 0 ? THEME.border : THEME.danger,
+                    background: count === 0 ? THEME.border : THEME.gradients.danger,
                     border: 'none',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     color: THEME.white,
                     fontSize: '24px',
                     fontWeight: '700',
@@ -2388,19 +2504,26 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    transition: 'all 0.2s',
+                    transition: 'all 0.2s ease',
+                    boxShadow: count === 0 ? 'none' : THEME.shadows.md,
                   }}
                 >
                   <Minus size={28} />
                 </button>
                 <button
-                  onClick={() => onIncrement(category.id)}
+                  onClick={() => handleIncrement(category.id)}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'scale(0.95)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
                   style={{
                     flex: 1,
                     padding: '18px',
-                    background: category.color,
+                    background: gradient,
                     border: 'none',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     color: THEME.white,
                     fontSize: '24px',
                     fontWeight: '700',
@@ -2409,7 +2532,8 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    transition: 'all 0.2s',
+                    transition: 'all 0.2s ease',
+                    boxShadow: THEME.shadows.md,
                   }}
                 >
                   <Plus size={28} />
@@ -2420,19 +2544,30 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
         })}
       </div>
       
-      <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: THEME.text }}>
+      <h3 style={{ 
+        margin: '0 0 16px 0', 
+        fontSize: '20px', 
+        fontWeight: '600', 
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
         This Week
       </h3>
       
       <div style={{
         background: THEME.white,
-        borderRadius: '12px',
+        borderRadius: '16px',
         padding: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        boxShadow: THEME.shadows.md,
       }}>
-        {CATEGORIES.map(category => {
+        {CATEGORIES.map((category, index) => {
           const count = weekStats[category.id] || 0;
           const Icon = category.icon;
+          
+          let gradient = category.color;
+          if (category.id === 'reviews') gradient = THEME.gradients.warning;
+          else if (category.id === 'demos') gradient = THEME.gradients.success;
+          else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
           
           return (
             <div
@@ -2441,15 +2576,40 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                padding: '12px 0',
-                borderBottom: `1px solid ${THEME.border}`,
+                padding: '14px 0',
+                borderBottom: index < CATEGORIES.length - 1 ? `1px solid ${THEME.border}` : 'none',
+                animation: `fadeInUp 0.3s ease-out ${index * 0.1}s both`,
               }}
             >
-              <Icon size={20} color={category.color} />
-              <div style={{ flex: 1, fontSize: '14px', color: THEME.text }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                background: gradient,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Icon size={20} color={THEME.white} />
+              </div>
+              <div style={{ 
+                flex: 1, 
+                fontSize: '15px', 
+                color: THEME.text,
+                fontFamily: 'var(--font-body)',
+                fontWeight: '500',
+              }}>
                 {category.name}
               </div>
-              <div style={{ fontSize: '20px', fontWeight: '700', color: category.color }}>
+              <div style={{ 
+                fontSize: '22px', 
+                fontWeight: '700', 
+                background: gradient,
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                fontFamily: 'var(--font-mono)',
+              }}>
                 {count}
               </div>
             </div>
@@ -2466,38 +2626,69 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
 function Goals({ currentUser, onUpdateGoals }) {
   const [goals, setGoals] = useState(currentUser.goals);
+  const [showSaved, setShowSaved] = useState(false);
   
   const handleSave = () => {
     onUpdateGoals(goals);
+    setShowSaved(true);
+    setTimeout(() => setShowSaved(false), 2000);
   };
   
   return (
     <div>
-      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+      <h2 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '24px', 
+        fontWeight: '700', 
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
         Daily Goals
       </h2>
       
       <div style={{
         background: THEME.white,
-        borderRadius: '12px',
-        padding: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: THEME.shadows.md,
       }}>
-        {CATEGORIES.map(category => {
+        {CATEGORIES.map((category, index) => {
           const Icon = category.icon;
+          
+          let gradient = category.color;
+          if (category.id === 'reviews') gradient = THEME.gradients.warning;
+          else if (category.id === 'demos') gradient = THEME.gradients.success;
+          else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
           
           return (
             <div
               key={category.id}
               style={{
-                marginBottom: '20px',
-                paddingBottom: '20px',
-                borderBottom: `1px solid ${THEME.border}`,
+                marginBottom: '24px',
+                paddingBottom: '24px',
+                borderBottom: index < CATEGORIES.length - 1 ? `1px solid ${THEME.border}` : 'none',
+                animation: `fadeInUp 0.3s ease-out ${index * 0.1}s both`,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                <Icon size={24} color={category.color} />
-                <div style={{ flex: 1, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: gradient,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Icon size={20} color={THEME.white} />
+                </div>
+                <div style={{ 
+                  flex: 1, 
+                  fontSize: '16px', 
+                  fontWeight: '600', 
+                  color: THEME.text,
+                  fontFamily: 'var(--font-body)',
+                }}>
                   {category.name}
                 </div>
               </div>
@@ -2510,11 +2701,22 @@ function Goals({ currentUser, onUpdateGoals }) {
                 onChange={(e) => setGoals({ ...goals, [category.id]: parseInt(e.target.value) || 0 })}
                 style={{
                   width: '100%',
-                  padding: '12px',
+                  padding: '14px',
                   border: `2px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  fontSize: '16px',
+                  borderRadius: '10px',
+                  fontSize: '18px',
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: '600',
                   boxSizing: 'border-box',
+                  transition: 'all 0.2s ease',
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = category.color;
+                  e.currentTarget.style.boxShadow = `0 0 0 3px ${category.color}20`;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = THEME.border;
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               />
             </div>
@@ -2523,19 +2725,39 @@ function Goals({ currentUser, onUpdateGoals }) {
         
         <button
           onClick={handleSave}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = 'scale(0.98)';
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
           style={{
             width: '100%',
             padding: '16px',
-            background: THEME.primary,
+            background: showSaved ? THEME.gradients.success : THEME.gradients.primary,
             border: 'none',
-            borderRadius: '8px',
+            borderRadius: '10px',
             color: THEME.white,
             fontSize: '16px',
             fontWeight: '600',
             cursor: 'pointer',
+            transition: 'all 0.3s ease',
+            boxShadow: THEME.shadows.md,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            fontFamily: 'var(--font-body)',
           }}
         >
-          Save Goals
+          {showSaved ? (
+            <>
+              <Check size={20} />
+              Saved!
+            </>
+          ) : (
+            'Save Goals'
+          )}
         </button>
       </div>
     </div>
@@ -2586,7 +2808,13 @@ function Appointments({ appointments, onAdd, onDelete }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        <h2 style={{ 
+          margin: 0, 
+          fontSize: '24px', 
+          fontWeight: '700', 
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
           Appointments
         </h2>
         <button
@@ -2799,7 +3027,27 @@ function Appointments({ appointments, onAdd, onDelete }) {
             textAlign: 'center',
             color: THEME.textLight,
           }}>
-            {searchTerm ? 'No appointments match your search' : 'No appointments logged yet'}
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              📅
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              {searchTerm ? 'No appointments found' : 'No appointments yet'}
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
+              {searchTerm ? 'Try adjusting your search terms' : 'Start by adding your first appointment'}
+            </div>
           </div>
         ) : (
           filteredAppointments.map(appt => (
@@ -2927,7 +3175,13 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
   
   return (
     <div>
-      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+      <h2 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '24px', 
+        fontWeight: '700', 
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
         Team Feed
       </h2>
       
@@ -2983,12 +3237,33 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
         {feed.length === 0 ? (
           <div style={{
             background: THEME.white,
-            borderRadius: '12px',
-            padding: '40px 20px',
+            borderRadius: '16px',
+            padding: '60px 20px',
             textAlign: 'center',
             color: THEME.textLight,
+            boxShadow: THEME.shadows.md,
           }}>
-            No posts yet. Be the first to share!
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              💬
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No posts yet
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
+              Be the first to share an update with the team!
+            </div>
           </div>
         ) : (
           feed.map(post => (
@@ -3007,7 +3282,7 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
                     {post.userName}
                   </div>
                   <div style={{ fontSize: '12px', color: THEME.textLight }}>
-                    {new Date(post.timestamp).toLocaleString()}
+                    {formatRelativeTime(post.timestamp)}
                     {post.edited && ' (edited)'}
                   </div>
                 </div>
@@ -3224,7 +3499,13 @@ function Leaderboard({ leaderboard, currentUser }) {
   
   return (
     <div>
-      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+      <h2 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '24px', 
+        fontWeight: '700', 
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
         Weekly Leaderboard
       </h2>
       
