@@ -1879,8 +1879,8 @@ export default function WindowDepotTracker() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: THEME.secondary,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      background: THEME.gradients.background,
+      fontFamily: 'var(--font-body)',
       paddingBottom: '80px',
     }}>
       {/* Offline Banner */}
@@ -1977,13 +1977,19 @@ export default function WindowDepotTracker() {
       
       {/* Header */}
       <div style={{
-        background: `linear-gradient(135deg, ${THEME.primaryDark} 0%, ${THEME.primary} 100%)`,
+        background: THEME.gradients.primary,
         color: THEME.white,
-        padding: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        padding: '24px 20px',
+        boxShadow: THEME.shadows.layered,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>
+          <h1 style={{ 
+            margin: 0, 
+            fontSize: '28px', 
+            fontWeight: '700',
+            fontFamily: 'var(--font-display)',
+            letterSpacing: '-0.5px',
+          }}>
             Window Depot Milwaukee
           </h1>
           {isOnline ? (
@@ -1992,7 +1998,12 @@ export default function WindowDepotTracker() {
             <WifiOff size={20} />
           )}
         </div>
-        <div style={{ fontSize: '14px', opacity: 0.9 }}>
+        <div style={{ 
+          fontSize: '15px', 
+          opacity: 0.95,
+          fontFamily: 'var(--font-body)',
+          fontWeight: '500',
+        }}>
           Welcome, {currentUser.name}
         </div>
         <button
@@ -2003,13 +2014,22 @@ export default function WindowDepotTracker() {
           }}
           style={{
             marginTop: '8px',
-            padding: '6px 12px',
-            background: 'rgba(255,255,255,0.2)',
+            padding: '8px 16px',
+            background: 'rgba(255,255,255,0.25)',
             border: 'none',
-            borderRadius: '6px',
+            borderRadius: '8px',
             color: THEME.white,
-            fontSize: '12px',
+            fontSize: '13px',
+            fontWeight: '600',
             cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontFamily: 'var(--font-body)',
+          }}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = 'scale(0.95)';
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
           }}
         >
           Switch User
@@ -2134,19 +2154,21 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
   return (
     <div style={{
       minHeight: '100vh',
-      background: THEME.secondary,
+      background: THEME.gradients.background,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '20px',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontFamily: 'var(--font-body)',
     }}>
       <div style={{
         background: THEME.white,
-        borderRadius: '16px',
-        padding: '40px',
-        maxWidth: '400px',
+        borderRadius: '20px',
+        padding: '48px',
+        maxWidth: '420px',
         width: '100%',
+        boxShadow: THEME.shadows.xl,
+        border: `1px solid ${THEME.border}`,
         boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
       }}>
         <div style={{
@@ -2154,29 +2176,34 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
           marginBottom: '32px',
         }}>
           <div style={{
-            width: '80px',
-            height: '80px',
-            background: THEME.primary,
+            width: '90px',
+            height: '90px',
+            background: THEME.gradients.primary,
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '0 auto 16px',
+            margin: '0 auto 20px',
+            boxShadow: THEME.shadows.layered,
           }}>
-            <Target size={40} color={THEME.white} />
+            <Target size={44} color={THEME.white} />
           </div>
           <h1 style={{
             margin: '0 0 8px 0',
-            fontSize: '28px',
+            fontSize: '32px',
             fontWeight: '700',
             color: THEME.text,
+            fontFamily: 'var(--font-display)',
+            letterSpacing: '-0.5px',
           }}>
             Window Depot
           </h1>
           <p style={{
             margin: 0,
-            fontSize: '16px',
+            fontSize: '17px',
             color: THEME.textLight,
+            fontFamily: 'var(--font-body)',
+            fontWeight: '500',
           }}>
             Goal Tracker
           </p>
@@ -2195,14 +2222,16 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
               onClick={() => setMode('select')}
               style={{
                 flex: 1,
-                padding: '12px',
+                padding: '14px',
                 background: mode === 'select' ? THEME.white : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
+                border: mode === 'select' ? `2px solid ${THEME.primary}` : 'none',
+                borderRadius: '10px',
                 color: mode === 'select' ? THEME.primary : THEME.textLight,
-                fontWeight: '600',
+                fontWeight: '700',
                 cursor: 'pointer',
-                transition: 'all 0.2s',
+                transition: 'all 0.3s ease',
+                boxShadow: mode === 'select' ? THEME.shadows.md : 'none',
+                fontFamily: 'var(--font-body)',
               }}
             >
               Select User
@@ -2211,14 +2240,16 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
               onClick={() => setMode('create')}
               style={{
                 flex: 1,
-                padding: '12px',
+                padding: '14px',
                 background: mode === 'create' ? THEME.white : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
+                border: mode === 'create' ? `2px solid ${THEME.primary}` : 'none',
+                borderRadius: '10px',
                 color: mode === 'create' ? THEME.primary : THEME.textLight,
-                fontWeight: '600',
+                fontWeight: '700',
                 cursor: 'pointer',
-                transition: 'all 0.2s',
+                transition: 'all 0.3s ease',
+                boxShadow: mode === 'create' ? THEME.shadows.md : 'none',
+                fontFamily: 'var(--font-body)',
               }}
             >
               Create New
@@ -2235,22 +2266,43 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
                   onClick={() => onSelectUser(user)}
                   style={{
                     width: '100%',
-                    padding: '16px',
-                    marginBottom: '8px',
-                    background: THEME.secondary,
-                    border: 'none',
-                    borderRadius: '8px',
+                    padding: '20px',
+                    marginBottom: '12px',
+                    background: THEME.white,
+                    border: `2px solid ${THEME.border}`,
+                    borderRadius: '12px',
                     textAlign: 'left',
                     cursor: 'pointer',
-                    transition: 'all 0.2s',
+                    transition: 'all 0.3s ease',
+                    boxShadow: THEME.shadows.sm,
                   }}
-                  onMouseOver={(e) => e.target.style.background = THEME.accent}
-                  onMouseOut={(e) => e.target.style.background = THEME.secondary}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = THEME.gradients.cardHover;
+                    e.currentTarget.style.borderColor = THEME.primary;
+                    e.currentTarget.style.boxShadow = THEME.shadows.md;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = THEME.white;
+                    e.currentTarget.style.borderColor = THEME.border;
+                    e.currentTarget.style.boxShadow = THEME.shadows.sm;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                 >
-                  <div style={{ fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                  <div style={{ 
+                    fontWeight: '700', 
+                    color: THEME.text, 
+                    marginBottom: '6px',
+                    fontSize: '18px',
+                    fontFamily: 'var(--font-display)',
+                  }}>
                     {user.name}
                   </div>
-                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                  <div style={{ 
+                    fontSize: '14px', 
+                    color: THEME.textLight,
+                    fontFamily: 'var(--font-body)',
+                  }}>
                     {user.role === 'manager' ? '👔 Manager' : '👤 Employee'}
                   </div>
                 </button>
@@ -2819,11 +2871,17 @@ function Appointments({ appointments, onAdd, onDelete }) {
         </h2>
         <button
           onClick={() => setShowForm(!showForm)}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = 'scale(0.95)';
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
           style={{
-            padding: '12px 20px',
-            background: THEME.primary,
+            padding: '12px 24px',
+            background: THEME.gradients.primary,
             border: 'none',
-            borderRadius: '8px',
+            borderRadius: '10px',
             color: THEME.white,
             fontSize: '14px',
             fontWeight: '600',
@@ -2831,6 +2889,9 @@ function Appointments({ appointments, onAdd, onDelete }) {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
+            transition: 'all 0.2s ease',
+            boxShadow: THEME.shadows.md,
+            fontFamily: 'var(--font-body)',
           }}
         >
           <Plus size={20} />
@@ -2959,32 +3020,49 @@ function Appointments({ appointments, onAdd, onDelete }) {
             <button
               onClick={handleSubmit}
               disabled={!formData.customerName.trim()}
+              onMouseDown={(e) => {
+                if (formData.customerName.trim()) e.currentTarget.style.transform = 'scale(0.98)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
               style={{
                 flex: 1,
                 padding: '16px',
-                background: formData.customerName.trim() ? THEME.success : THEME.border,
+                background: formData.customerName.trim() ? THEME.gradients.success : THEME.border,
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '10px',
                 color: THEME.white,
                 fontSize: '16px',
                 fontWeight: '600',
                 cursor: formData.customerName.trim() ? 'pointer' : 'not-allowed',
+                transition: 'all 0.2s ease',
+                boxShadow: formData.customerName.trim() ? THEME.shadows.md : 'none',
+                fontFamily: 'var(--font-body)',
               }}
             >
               Save Appointment
             </button>
             <button
               onClick={() => setShowForm(false)}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'scale(0.98)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
               style={{
                 flex: 1,
                 padding: '16px',
                 background: THEME.secondary,
-                border: 'none',
-                borderRadius: '8px',
+                border: `1px solid ${THEME.border}`,
+                borderRadius: '10px',
                 color: THEME.text,
                 fontSize: '16px',
                 fontWeight: '600',
                 cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                fontFamily: 'var(--font-body)',
               }}
             >
               Cancel
@@ -3050,22 +3128,43 @@ function Appointments({ appointments, onAdd, onDelete }) {
             </div>
           </div>
         ) : (
-          filteredAppointments.map(appt => (
+          filteredAppointments.map((appt, index) => (
             <div
               key={appt.id}
               style={{
                 background: THEME.white,
-                borderRadius: '12px',
-                padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                borderRadius: '16px',
+                padding: '20px',
+                boxShadow: THEME.shadows.md,
+                border: `1px solid ${THEME.border}`,
+                animation: `fadeInUp 0.4s ease-out ${index * 0.05}s both`,
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.layered;
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.md;
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                 <div>
-                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                  <div style={{ 
+                    fontSize: '18px', 
+                    fontWeight: '700', 
+                    color: THEME.text, 
+                    marginBottom: '6px',
+                    fontFamily: 'var(--font-display)',
+                  }}>
                     {appt.customerName}
                   </div>
-                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                  <div style={{ 
+                    fontSize: '14px', 
+                    color: THEME.textLight,
+                    fontFamily: 'var(--font-body)',
+                  }}>
                     {formatDate(appt.date)}
                   </div>
                 </div>
@@ -3083,19 +3182,21 @@ function Appointments({ appointments, onAdd, onDelete }) {
               </div>
               
               {appt.products && appt.products.length > 0 && (
-                <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                   {appt.products.map(productId => {
                     const product = PRODUCT_INTERESTS.find(p => p.id === productId);
                     return product ? (
                       <span
                         key={productId}
                         style={{
-                          padding: '4px 12px',
+                          padding: '6px 14px',
                           background: product.color,
                           color: THEME.white,
                           borderRadius: '12px',
                           fontSize: '12px',
                           fontWeight: '600',
+                          boxShadow: THEME.shadows.sm,
+                          fontFamily: 'var(--font-body)',
                         }}
                       >
                         {product.label}
@@ -3187,10 +3288,11 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
       
       <div style={{
         background: THEME.white,
-        borderRadius: '12px',
-        padding: '20px',
+        borderRadius: '16px',
+        padding: '24px',
         marginBottom: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        boxShadow: THEME.shadows.layered,
+        border: `1px solid ${THEME.border}`,
       }}>
         <textarea
           value={newPost}
@@ -3200,32 +3302,54 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
           rows={3}
           style={{
             width: '100%',
-            padding: '12px',
+            padding: '14px',
             border: `2px solid ${THEME.border}`,
-            borderRadius: '8px',
+            borderRadius: '10px',
             fontSize: '16px',
-            fontFamily: 'inherit',
+            fontFamily: 'var(--font-body)',
             boxSizing: 'border-box',
             resize: 'vertical',
             marginBottom: '12px',
+            transition: 'all 0.2s ease',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = THEME.primary;
+            e.currentTarget.style.boxShadow = `0 0 0 3px ${THEME.primary}20`;
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = THEME.border;
+            e.currentTarget.style.boxShadow = 'none';
           }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: THEME.textLight }}>
+          <span style={{ 
+            fontSize: '12px', 
+            color: THEME.textLight,
+            fontFamily: 'var(--font-body)',
+          }}>
             {newPost.length}/500
           </span>
           <button
             onClick={handlePost}
             disabled={!newPost.trim()}
+            onMouseDown={(e) => {
+              if (newPost.trim()) e.currentTarget.style.transform = 'scale(0.95)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
             style={{
-              padding: '12px 24px',
-              background: newPost.trim() ? THEME.primary : THEME.border,
+              padding: '12px 28px',
+              background: newPost.trim() ? THEME.gradients.primary : THEME.border,
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '10px',
               color: THEME.white,
               fontSize: '14px',
               fontWeight: '600',
               cursor: newPost.trim() ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s ease',
+              boxShadow: newPost.trim() ? THEME.shadows.md : 'none',
+              fontFamily: 'var(--font-body)',
             }}
           >
             Post
@@ -3266,22 +3390,43 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
             </div>
           </div>
         ) : (
-          feed.map(post => (
+          feed.map((post, index) => (
             <div
               key={post.id}
               style={{
                 background: THEME.white,
-                borderRadius: '12px',
-                padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                borderRadius: '16px',
+                padding: '20px',
+                boxShadow: THEME.shadows.md,
+                borderLeft: post.isAuto ? `4px solid ${THEME.warning}` : `4px solid ${THEME.primary}`,
+                animation: `fadeInUp 0.4s ease-out ${index * 0.05}s both`,
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.layered;
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.md;
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                  <div style={{ 
+                    fontSize: '15px', 
+                    fontWeight: '700', 
+                    color: THEME.text,
+                    fontFamily: 'var(--font-display)',
+                    marginBottom: '4px',
+                  }}>
                     {post.userName}
                   </div>
-                  <div style={{ fontSize: '12px', color: THEME.textLight }}>
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: THEME.textLight,
+                    fontFamily: 'var(--font-body)',
+                  }}>
                     {formatRelativeTime(post.timestamp)}
                     {post.edited && ' (edited)'}
                   </div>
@@ -3374,37 +3519,56 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
                 </div>
               ) : (
                 <div style={{
-                  fontSize: '14px',
+                  fontSize: '15px',
                   color: THEME.text,
                   marginBottom: '12px',
-                  lineHeight: '1.5',
+                  lineHeight: '1.6',
+                  fontFamily: 'var(--font-body)',
                 }}>
                   {post.content}
                 </div>
               )}
               
-              <div style={{ display: 'flex', gap: '16px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+              <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
                 <button
                   onClick={() => onToggleLike(post.id)}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'scale(0.9)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '6px 12px',
-                    background: (post.likes || []).includes(currentUser.id) ? THEME.accent : 'transparent',
-                    border: 'none',
-                    borderRadius: '6px',
-                    color: (post.likes || []).includes(currentUser.id) ? THEME.primary : THEME.textLight,
-                    fontSize: '12px',
+                    padding: '8px 14px',
+                    background: (post.likes || []).includes(currentUser.id) 
+                      ? THEME.gradients.primary 
+                      : 'transparent',
+                    border: (post.likes || []).includes(currentUser.id) 
+                      ? 'none' 
+                      : `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: (post.likes || []).includes(currentUser.id) ? THEME.white : THEME.textLight,
+                    fontSize: '13px',
                     fontWeight: '600',
                     cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontFamily: 'var(--font-body)',
                   }}
                 >
-                  <ThumbsUp size={14} />
+                  <ThumbsUp size={16} />
                   {(post.likes || []).length}
                 </button>
                 <button
                   onClick={() => setCommentingId(commentingId === post.id ? null : post.id)}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'scale(0.9)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -3467,15 +3631,24 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
                   <button
                     onClick={() => handleComment(post.id)}
                     disabled={!newComment.trim()}
+                    onMouseDown={(e) => {
+                      if (newComment.trim()) e.currentTarget.style.transform = 'scale(0.95)';
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
                     style={{
                       padding: '8px 16px',
-                      background: newComment.trim() ? THEME.primary : THEME.border,
+                      background: newComment.trim() ? THEME.gradients.primary : THEME.border,
                       border: 'none',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       color: THEME.white,
                       fontSize: '12px',
                       fontWeight: '600',
                       cursor: newComment.trim() ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.2s ease',
+                      boxShadow: newComment.trim() ? THEME.shadows.sm : 'none',
+                      fontFamily: 'var(--font-body)',
                     }}
                   >
                     Comment
@@ -3513,55 +3686,115 @@ function Leaderboard({ leaderboard, currentUser }) {
         {leaderboard.length === 0 ? (
           <div style={{
             background: THEME.white,
-            borderRadius: '12px',
-            padding: '40px 20px',
+            borderRadius: '16px',
+            padding: '60px 20px',
             textAlign: 'center',
             color: THEME.textLight,
+            boxShadow: THEME.shadows.md,
           }}>
-            No activity this week yet
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              🏆
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No activity this week yet
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
+              Start tracking to see rankings!
+            </div>
           </div>
         ) : (
-          leaderboard.map((user, index) => (
-            <div
-              key={user.id}
-              style={{
-                background: user.id === currentUser.id ? THEME.accent : THEME.white,
-                borderRadius: '12px',
-                padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                border: user.id === currentUser.id ? `2px solid ${THEME.primary}` : 'none',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{
-                  width: '40px',
-                  height: '40px',
-                  background: index < 3 ? medals[index] : THEME.secondary,
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                  fontWeight: '700',
-                  color: index < 3 ? THEME.white : THEME.textLight,
-                }}>
-                  {index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
-                    {user.name}
-                    {user.id === currentUser.id && ' (You)'}
+          leaderboard.map((user, index) => {
+            const isTopThree = index < 3;
+            const isCurrentUser = user.id === currentUser.id;
+            const medalGradients = [
+              THEME.gradients.gold,
+              'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
+              'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
+            ];
+            
+            return (
+              <div
+                key={user.id}
+                style={{
+                  background: isCurrentUser 
+                    ? THEME.gradients.cardHover 
+                    : THEME.white,
+                  borderRadius: '16px',
+                  padding: '20px',
+                  boxShadow: isTopThree ? THEME.shadows.layered : THEME.shadows.md,
+                  border: isCurrentUser 
+                    ? `2px solid ${THEME.primary}` 
+                    : isTopThree 
+                      ? `2px solid ${medals[index]}` 
+                      : `1px solid ${THEME.border}`,
+                  animation: `fadeInUp 0.4s ease-out ${index * 0.1}s both`,
+                  transform: isTopThree ? 'scale(1.02)' : 'scale(1)',
+                  transition: 'all 0.3s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{
+                    width: isTopThree ? '56px' : '48px',
+                    height: isTopThree ? '56px' : '48px',
+                    background: isTopThree ? medalGradients[index] : THEME.secondary,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: isTopThree ? '28px' : '20px',
+                    fontWeight: '700',
+                    color: isTopThree ? THEME.white : THEME.textLight,
+                    boxShadow: isTopThree ? THEME.shadows.layered : THEME.shadows.md,
+                    animation: isTopThree ? 'pulse 2s infinite' : 'none',
+                  }}>
+                    {isTopThree ? ['🥇', '🥈', '🥉'][index] : index + 1}
                   </div>
-                  <div style={{ fontSize: '14px', color: THEME.textLight }}>
-                    {user.role === 'manager' ? 'Manager' : 'Employee'}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ 
+                      fontSize: '17px', 
+                      fontWeight: '700', 
+                      color: THEME.text,
+                      fontFamily: 'var(--font-display)',
+                      marginBottom: '4px',
+                    }}>
+                      {user.name}
+                      {isCurrentUser && ' (You)'}
+                    </div>
+                    <div style={{ 
+                      fontSize: '13px', 
+                      color: THEME.textLight,
+                      fontFamily: 'var(--font-body)',
+                    }}>
+                      {user.role === 'manager' ? 'Manager' : 'Employee'}
+                    </div>
                   </div>
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: '700', color: THEME.primary }}>
-                  {user.weeklyTotal}
+                  <div style={{ 
+                    fontSize: '28px', 
+                    fontWeight: '700', 
+                    background: THEME.gradients.primary,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    fontFamily: 'var(--font-mono)',
+                  }}>
+                    {user.weeklyTotal}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -5088,55 +5321,91 @@ function TeamView({ users, dailyLogs }) {
               key={user.id}
               style={{
                 background: THEME.white,
-                borderRadius: '12px',
-                padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                borderRadius: '16px',
+                padding: '24px',
+                boxShadow: THEME.shadows.md,
+                border: `1px solid ${THEME.border}`,
+                transition: 'all 0.3s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.layered;
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = THEME.shadows.md;
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ 
+                  fontSize: '20px', 
+                  fontWeight: '700', 
+                  color: THEME.text, 
+                  marginBottom: '6px',
+                  fontFamily: 'var(--font-display)',
+                }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: '14px', color: THEME.textLight }}>
+                <div style={{ 
+                  fontSize: '15px', 
+                  color: THEME.textLight,
+                  fontFamily: 'var(--font-body)',
+                }}>
                   {total} / {goalTotal} activities today
                 </div>
               </div>
               
               <div style={{
-                height: '8px',
+                height: '12px',
                 background: THEME.secondary,
-                borderRadius: '4px',
+                borderRadius: '8px',
                 overflow: 'hidden',
-                marginBottom: '12px',
+                marginBottom: '16px',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)',
               }}>
                 <div style={{
                   height: '100%',
                   width: `${Math.min(progress, 100)}%`,
-                  background: progress >= 100 ? THEME.success : 
-                             progress >= 50 ? THEME.warning : 
-                             THEME.primary,
-                  transition: 'width 0.3s ease',
+                  background: progress >= 100 
+                    ? THEME.gradients.success 
+                    : progress >= 50 
+                      ? THEME.gradients.warning 
+                      : THEME.gradients.primary,
+                  transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  borderRadius: '8px',
                 }} />
               </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                {CATEGORIES.map(category => {
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                {CATEGORIES.map((category, index) => {
                   const count = stats[category.id] || 0;
                   const goal = user.goals[category.id];
                   const Icon = category.icon;
+                  
+                  let gradient = category.color;
+                  if (category.id === 'reviews') gradient = THEME.gradients.warning;
+                  else if (category.id === 'demos') gradient = THEME.gradients.success;
+                  else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
                   
                   return (
                     <div
                       key={category.id}
                       style={{
-                        padding: '8px',
-                        background: THEME.secondary,
-                        borderRadius: '8px',
+                        padding: '12px',
+                        background: gradient,
+                        borderRadius: '12px',
                         textAlign: 'center',
+                        boxShadow: THEME.shadows.sm,
+                        animation: `fadeInUp 0.3s ease-out ${index * 0.1}s both`,
                       }}
                     >
-                      <Icon size={16} color={category.color} style={{ marginBottom: '4px' }} />
-                      <div style={{ fontSize: '12px', fontWeight: '600', color: category.color }}>
+                      <Icon size={20} color={THEME.white} style={{ marginBottom: '6px' }} />
+                      <div style={{ 
+                        fontSize: '14px', 
+                        fontWeight: '700', 
+                        color: THEME.white,
+                        fontFamily: 'var(--font-mono)',
+                      }}>
                         {count}/{goal}
                       </div>
                     </div>
@@ -5178,17 +5447,29 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        <h2 style={{ 
+          margin: 0, 
+          fontSize: '24px', 
+          fontWeight: '700', 
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
           Admin Panel
         </h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={onExport}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'scale(0.95)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
             style={{
-              padding: '12px 20px',
-              background: THEME.success,
+              padding: '12px 24px',
+              background: THEME.gradients.success,
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '10px',
               color: THEME.white,
               fontSize: '14px',
               fontWeight: '600',
@@ -5196,6 +5477,9 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              transition: 'all 0.2s ease',
+              boxShadow: THEME.shadows.md,
+              fontFamily: 'var(--font-body)',
             }}
           >
             <Download size={20} />
@@ -5203,11 +5487,17 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
           </button>
           <button
             onClick={() => setShowForm(!showForm)}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'scale(0.95)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
             style={{
-              padding: '12px 20px',
-              background: THEME.primary,
+              padding: '12px 24px',
+              background: THEME.gradients.primary,
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '10px',
               color: THEME.white,
               fontSize: '14px',
               fontWeight: '600',
@@ -5520,19 +5810,36 @@ function Reports({ users, dailyLogs, appointments }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: THEME.text }}>
+        <h2 style={{ 
+          margin: 0, 
+          fontSize: '24px', 
+          fontWeight: '700', 
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
           Reports
         </h2>
         <select
           value={timeRange}
           onChange={(e) => setTimeRange(e.target.value)}
           style={{
-            padding: '8px 16px',
+            padding: '10px 18px',
             border: `2px solid ${THEME.border}`,
-            borderRadius: '8px',
+            borderRadius: '10px',
             fontSize: '14px',
             fontWeight: '600',
             cursor: 'pointer',
+            background: THEME.white,
+            fontFamily: 'var(--font-body)',
+            transition: 'all 0.2s ease',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = THEME.primary;
+            e.currentTarget.style.boxShadow = `0 0 0 3px ${THEME.primary}20`;
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = THEME.border;
+            e.currentTarget.style.boxShadow = 'none';
           }}
         >
           <option value="week">This Week</option>
@@ -5542,12 +5849,19 @@ function Reports({ users, dailyLogs, appointments }) {
       
       <div style={{
         background: THEME.white,
-        borderRadius: '12px',
-        padding: '20px',
+        borderRadius: '16px',
+        padding: '24px',
         marginBottom: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        boxShadow: THEME.shadows.md,
+        border: `1px solid ${THEME.border}`,
       }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+        <h3 style={{ 
+          margin: '0 0 20px 0', 
+          fontSize: '18px', 
+          fontWeight: '700', 
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
           Team Performance
         </h3>
         {chartData.length > 0 ? (
@@ -5557,12 +5871,43 @@ function Reports({ users, dailyLogs, appointments }) {
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey="total" fill={THEME.primary} radius={[8, 8, 0, 0]} />
+              <Bar dataKey="total" fill="url(#gradientBar)" radius={[10, 10, 0, 0]}>
+                <defs>
+                  <linearGradient id="gradientBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={THEME.primary} />
+                    <stop offset="100%" stopColor={THEME.primaryLight} />
+                  </linearGradient>
+                </defs>
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: THEME.textLight }}>
-            No data available
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '60px 20px', 
+            color: THEME.textLight,
+          }}>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              📊
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No data available
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
+              Start tracking to see performance reports
+            </div>
           </div>
         )}
       </div>
@@ -5597,8 +5942,32 @@ function Reports({ users, dailyLogs, appointments }) {
             </PieChart>
           </ResponsiveContainer>
         ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: THEME.textLight }}>
-            No activity data
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '60px 20px', 
+            color: THEME.textLight,
+          }}>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              📈
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No activity data
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
+              Activity will appear here once team members start tracking
+            </div>
           </div>
         )}
       </div>
@@ -6518,7 +6887,7 @@ function BottomNav({ activeView, onViewChange, isManager }) {
         borderTop: `1px solid ${THEME.border}`,
         display: 'grid',
         gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)`,
-        boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
+        boxShadow: THEME.shadows.layered,
         zIndex: 1000,
         overflowX: 'auto',
         WebkitOverflowScrolling: 'touch',
@@ -6534,19 +6903,26 @@ function BottomNav({ activeView, onViewChange, isManager }) {
               className="bottom-nav-item"
               style={{
                 padding: isMobile ? '8px 4px' : '12px 8px',
-                background: 'transparent',
+                background: isActive ? THEME.gradients.cardHover : 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '2px',
+                gap: '4px',
                 color: isActive ? THEME.primary : THEME.textLight,
-                transition: 'all 0.2s',
+                transition: 'all 0.3s ease',
                 minWidth: '0',
                 flexShrink: 0,
                 touchAction: 'manipulation',
+                position: 'relative',
+              }}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'scale(0.95)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
               }}
               onTouchStart={(e) => {
                 e.currentTarget.style.opacity = '0.7';
@@ -6555,20 +6931,34 @@ function BottomNav({ activeView, onViewChange, isManager }) {
                 e.currentTarget.style.opacity = '1';
               }}
             >
+              {isActive && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '40px',
+                  height: '3px',
+                  background: THEME.gradients.primary,
+                  borderRadius: '0 0 4px 4px',
+                }} />
+              )}
               <Icon 
-                size={isMobile ? 18 : 20} 
+                size={isMobile ? 18 : 22} 
                 className="bottom-nav-icon"
                 style={{
                   flexShrink: 0,
-                  minWidth: isMobile ? '18px' : '20px',
-                  minHeight: isMobile ? '18px' : '20px',
+                  minWidth: isMobile ? '18px' : '22px',
+                  minHeight: isMobile ? '18px' : '22px',
+                  transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                  transition: 'transform 0.2s ease',
                 }}
               />
               <span 
                 className="bottom-nav-label"
                 style={{ 
-                  fontSize: isMobile ? '9px' : '10px', 
-                  fontWeight: '600',
+                  fontSize: isMobile ? '9px' : '11px', 
+                  fontWeight: isActive ? '700' : '600',
                   lineHeight: '1.2',
                   textAlign: 'center',
                   overflow: 'hidden',
@@ -6576,6 +6966,7 @@ function BottomNav({ activeView, onViewChange, isManager }) {
                   whiteSpace: 'nowrap',
                   width: '100%',
                   padding: '0 2px',
+                  fontFamily: 'var(--font-body)',
                 }}
               >
                 {item.label}
