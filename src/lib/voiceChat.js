@@ -10,8 +10,12 @@ let mediaStream = null;
 let mediaRecorder = null;
 let scriptProcessor = null;
 let webSocket = null;
-let audioQueue = [];
+let audioQueue = []; // Queue of Float32Array buffers
 let isPlaying = false;
+let isStreamComplete = false;
+let scheduledTime = 0;
+let checkInterval = null;
+let endOfQueueAudioSource = null;
 let currentModel = 'gemini-2.5-flash-native-audio-preview-12-2025'; // Native audio model for Live API
 
 // Audio format constants (per Gemini Live API spec)
@@ -19,6 +23,11 @@ let currentModel = 'gemini-2.5-flash-native-audio-preview-12-2025'; // Native au
 const SEND_SAMPLE_RATE = 16000; // 16kHz for input
 // eslint-disable-next-line no-unused-vars
 const RECEIVE_SAMPLE_RATE = 24000; // 24kHz for output
+
+// Audio streaming constants (from official reference implementation)
+const AUDIO_BUFFER_SIZE = 7680; // 160ms at 24kHz (3840 samples = 160ms)
+const INITIAL_BUFFER_TIME = 0.1; // 100ms initial buffer
+const SCHEDULE_AHEAD_TIME = 0.2; // 200ms ahead scheduling
 
 // Note: Live models are now fetched dynamically via fetchAvailableModels() in ai.js
 // The models that support bidiGenerateContent will be listed there
@@ -81,66 +90,135 @@ const arrayBufferToBase64 = (buffer) => {
 };
 
 /**
- * Play audio from PCM data
+ * Convert PCM16 Uint8Array to Float32Array
  */
-const playAudio = async (pcmData) => {
-  console.log('Playing audio chunk:', { length: pcmData.byteLength });
-  try {
-    const ctx = initAudioContext();
+const processPCM16Chunk = (chunk) => {
+  const float32Array = new Float32Array(chunk.length / 2);
+  const dataView = new DataView(chunk.buffer);
 
-    // Resume if suspended
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
+  for (let i = 0; i < chunk.length / 2; i++) {
+    try {
+      const int16 = dataView.getInt16(i * 2, true);
+      float32Array[i] = int16 / 32768;
+    } catch (e) {
+      console.error('Error processing PCM chunk:', e);
     }
+  }
+  return float32Array;
+};
 
-    // Convert PCM to AudioBuffer (16-bit PCM, 24kHz, mono)
-    const samples = new Int16Array(pcmData);
-    const floatSamples = new Float32Array(samples.length);
+/**
+ * Create AudioBuffer from Float32Array
+ */
+const createAudioBuffer = (audioData) => {
+  const ctx = initAudioContext();
+  const audioBuffer = ctx.createBuffer(1, audioData.length, 24000);
+  audioBuffer.getChannelData(0).set(audioData);
+  return audioBuffer;
+};
 
-    for (let i = 0; i < samples.length; i++) {
-      floatSamples[i] = samples[i] / 32768;
-    }
+/**
+ * Schedule next audio buffer for playback
+ */
+const scheduleNextBuffer = () => {
+  const ctx = initAudioContext();
 
-    const audioBuffer = ctx.createBuffer(1, floatSamples.length, 24000);
-    audioBuffer.copyToChannel(floatSamples, 0);
-
+  while (
+    audioQueue.length > 0 &&
+    scheduledTime < ctx.currentTime + SCHEDULE_AHEAD_TIME
+  ) {
+    const audioData = audioQueue.shift();
+    const audioBuffer = createAudioBuffer(audioData);
     const source = ctx.createBufferSource();
+    
+    // Capture queue length and end source reference for closure
+    const isLastInQueue = audioQueue.length === 0;
+    const currentSource = source;
+
+    // Track last source to detect when queue is empty
+    if (isLastInQueue) {
+      if (endOfQueueAudioSource) {
+        endOfQueueAudioSource.onended = null;
+      }
+      endOfQueueAudioSource = source;
+      // eslint-disable-next-line no-loop-func
+      source.onended = () => {
+        const queueLength = audioQueue.length;
+        const currentEndSource = endOfQueueAudioSource;
+        if (queueLength === 0 && currentEndSource === currentSource) {
+          endOfQueueAudioSource = null;
+        }
+      };
+    }
+
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
 
-    console.log('Audio playback started successfully');
-    return new Promise((resolve) => {
-      source.onended = () => {
-        console.log('Audio playback completed');
-        resolve();
-      };
-      source.start();
-    });
-  } catch (error) {
-    console.error('Audio playback error:', error);
-    throw error;
+    // Ensure we never schedule in the past
+    const startTime = Math.max(scheduledTime, ctx.currentTime);
+    source.start(startTime);
+    scheduledTime = startTime + audioBuffer.duration;
+  }
+
+  // Schedule next buffer check
+  if (audioQueue.length === 0) {
+    if (isStreamComplete) {
+      isPlaying = false;
+      if (checkInterval) {
+        clearInterval(checkInterval);
+        checkInterval = null;
+      }
+    } else {
+      // Check periodically for new chunks
+      if (!checkInterval) {
+        checkInterval = setInterval(() => {
+          if (audioQueue.length > 0) {
+            scheduleNextBuffer();
+          }
+        }, 100);
+      }
+    }
+  } else {
+    // Schedule next buffer based on when current buffer will finish
+    const nextCheckTime = (scheduledTime - ctx.currentTime) * 1000;
+    setTimeout(() => scheduleNextBuffer(), Math.max(0, nextCheckTime - 50));
   }
 };
 
 /**
- * Process audio queue for playback
+ * Add PCM16 audio chunk to playback queue (buffered streaming approach)
  */
-const processAudioQueue = async () => {
-  if (isPlaying || audioQueue.length === 0) return;
+const addPCM16Chunk = (chunk) => {
+  // Reset stream complete flag when new chunk is added
+  isStreamComplete = false;
 
-  isPlaying = true;
+  // Convert PCM16 to Float32Array
+  let processingBuffer = processPCM16Chunk(chunk);
 
-  while (audioQueue.length > 0) {
-    const audioData = audioQueue.shift();
-    try {
-      await playAudio(audioData);
-    } catch (error) {
-      console.error('Error playing audio:', error);
-    }
+  // Split into buffers of AUDIO_BUFFER_SIZE if larger
+  while (processingBuffer.length >= AUDIO_BUFFER_SIZE) {
+    const buffer = processingBuffer.slice(0, AUDIO_BUFFER_SIZE);
+    audioQueue.push(buffer);
+    processingBuffer = processingBuffer.slice(AUDIO_BUFFER_SIZE);
   }
 
-  isPlaying = false;
+  // Add remaining buffer if not empty
+  if (processingBuffer.length > 0) {
+    audioQueue.push(processingBuffer);
+  }
+
+  // Start playing if not already playing
+  if (!isPlaying) {
+    isPlaying = true;
+    const ctx = initAudioContext();
+    // Initialize scheduledTime with initial buffer time
+    scheduledTime = ctx.currentTime + INITIAL_BUFFER_TIME;
+    scheduleNextBuffer();
+  }
 };
+
+// processAudioQueue is no longer used - audio is now handled by addPCM16Chunk and scheduleNextBuffer
+// Removed to avoid unused variable warning
 
 /**
  * Validation functions
@@ -258,6 +336,16 @@ class VoiceChatSession {
       silenceDurationMs: 500,
       prefixPaddingMs: 100,
     };
+    // Generation config settings
+    this.generationConfig = options.generationConfig || {
+      temperature: 1.0,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 8192,
+      candidateCount: 1,
+      presencePenalty: 0.0,
+      frequencyPenalty: 0.0,
+    };
     this.isConnected = false;
     this.isListening = false;
     this.analyser = null;
@@ -326,6 +414,14 @@ class VoiceChatSession {
                     },
                   },
                 },
+                // Merge generation config parameters
+                ...(this.generationConfig.temperature !== undefined && { temperature: this.generationConfig.temperature }),
+                ...(this.generationConfig.topP !== undefined && { topP: this.generationConfig.topP }),
+                ...(this.generationConfig.topK !== undefined && { topK: this.generationConfig.topK }),
+                ...(this.generationConfig.maxOutputTokens !== undefined && { maxOutputTokens: this.generationConfig.maxOutputTokens }),
+                ...(this.generationConfig.candidateCount !== undefined && { candidateCount: this.generationConfig.candidateCount }),
+                ...(this.generationConfig.presencePenalty !== undefined && { presencePenalty: this.generationConfig.presencePenalty }),
+                ...(this.generationConfig.frequencyPenalty !== undefined && { frequencyPenalty: this.generationConfig.frequencyPenalty }),
               },
               realtimeInputConfig: {
                 automaticActivityDetection: {
@@ -605,8 +701,9 @@ class VoiceChatSession {
               queueLength: audioQueue.length
             });
             const audioData = base64ToArrayBuffer(part.inlineData.data);
-            audioQueue.push(audioData);
-            processAudioQueue();
+            // Convert to Uint8Array and use buffered streaming approach
+            const uint8Array = new Uint8Array(audioData);
+            addPCM16Chunk(uint8Array);
           } else if (part.inlineData?.mimeType?.includes('audio')) {
             // Log any other audio formats for debugging
             console.log('Audio part received (unexpected format):', {
@@ -851,6 +948,13 @@ class VoiceChatSession {
 
     audioQueue = [];
     isPlaying = false;
+    isStreamComplete = false;
+    scheduledTime = 0;
+    if (checkInterval) {
+      clearInterval(checkInterval);
+      checkInterval = null;
+    }
+    endOfQueueAudioSource = null;
     this.isConnected = false;
     this.onStatusChange('disconnected');
   }
@@ -859,8 +963,19 @@ class VoiceChatSession {
    * Interrupt AI speech
    */
   interrupt() {
-    // Clear audio queue
+    // Clear audio queue and reset playback state
     audioQueue = [];
+    isPlaying = false;
+    isStreamComplete = true;
+    scheduledTime = 0;
+    if (checkInterval) {
+      clearInterval(checkInterval);
+      checkInterval = null;
+    }
+    if (endOfQueueAudioSource) {
+      endOfQueueAudioSource.onended = null;
+      endOfQueueAudioSource = null;
+    }
 
     // Send interrupt signal if needed
     if (webSocket && webSocket.readyState === WebSocket.OPEN) {

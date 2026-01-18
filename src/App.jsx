@@ -271,6 +271,15 @@ export default function WindowDepotTracker() {
         silenceDurationMs: 500,
         prefixPaddingMs: 100,
       },
+      generationConfig: {
+        temperature: 1.0,
+        topP: 0.95,
+        topK: 40,
+        maxOutputTokens: 8192,
+        candidateCount: 1,
+        presencePenalty: 0.0,
+        frequencyPenalty: 0.0,
+      },
     },
     appearance: {
       compactMode: false,
@@ -356,6 +365,16 @@ export default function WindowDepotTracker() {
                 silenceDurationMs: 500,
                 prefixPaddingMs: 100,
                 ...savedSettings.ai?.voiceChatSettings,
+              },
+              generationConfig: {
+                temperature: 1.0,
+                topP: 0.95,
+                topK: 40,
+                maxOutputTokens: 8192,
+                candidateCount: 1,
+                presencePenalty: 0.0,
+                frequencyPenalty: 0.0,
+                ...savedSettings.ai?.generationConfig,
               },
             },
           };
@@ -3779,6 +3798,15 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
           silenceDurationMs: 500,
           prefixPaddingMs: 100,
         },
+        generationConfig: appSettings?.ai?.generationConfig || {
+          temperature: 1.0,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 8192,
+          candidateCount: 1,
+          presencePenalty: 0.0,
+          frequencyPenalty: 0.0,
+        },
         systemInstruction: `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
 The current user is ${currentUser?.name || 'User'} (${currentUser?.role || 'employee'}).
 Today's stats: Reviews: ${todayStats?.reviews || 0}, Demos: ${todayStats?.demos || 0}, Callbacks: ${todayStats?.callbacks || 0}.
@@ -4929,6 +4957,19 @@ function SettingsPage({ settings, onSaveSettings }) {
     setValidationResult(null);
   };
 
+  const handleGenerationConfigChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      ai: {
+        ...prev.ai,
+        generationConfig: {
+          ...prev.ai.generationConfig,
+          [key]: value,
+        },
+      },
+    }));
+  };
+
   const handleVoiceChatSettingChange = (key, value) => {
     setLocalSettings(prev => ({
       ...prev,
@@ -5371,6 +5412,156 @@ function SettingsPage({ settings, onSaveSettings }) {
             </div>
           </div>
         )}
+
+        {/* AI Generation Configuration */}
+        <div style={{
+          marginTop: '20px',
+          padding: '16px',
+          background: THEME.secondary,
+          borderRadius: '8px',
+          border: `2px solid ${THEME.border}`,
+        }}>
+          <div style={{ marginBottom: '16px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+            AI Generation Settings
+          </div>
+          <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: THEME.textLight }}>
+            Configure response generation parameters (affects both text and voice chat)
+          </p>
+
+          {/* Temperature */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Temperature: {localSettings.ai.generationConfig?.temperature || 1.0}
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={localSettings.ai.generationConfig?.temperature || 1.0}
+              onChange={(e) => handleGenerationConfigChange('temperature', parseFloat(e.target.value))}
+              style={{ ...inputStyle, width: '100%' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Controls randomness (0.0 = deterministic, 2.0 = creative). Default: 1.0
+            </p>
+          </div>
+
+          {/* Top P */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Top P: {localSettings.ai.generationConfig?.topP || 0.95}
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={localSettings.ai.generationConfig?.topP || 0.95}
+              onChange={(e) => handleGenerationConfigChange('topP', parseFloat(e.target.value))}
+              style={{ ...inputStyle, width: '100%' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Nucleus sampling parameter (0.0-1.0). Default: 0.95
+            </p>
+          </div>
+
+          {/* Top K */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Top K
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              value={localSettings.ai.generationConfig?.topK || 40}
+              onChange={(e) => handleGenerationConfigChange('topK', parseInt(e.target.value) || 40)}
+              style={inputStyle}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Top-k sampling. Default: 40
+            </p>
+          </div>
+
+          {/* Max Output Tokens */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Max Output Tokens
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="8192"
+              step="128"
+              value={localSettings.ai.generationConfig?.maxOutputTokens || 8192}
+              onChange={(e) => handleGenerationConfigChange('maxOutputTokens', parseInt(e.target.value) || 8192)}
+              style={inputStyle}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Maximum tokens in response (1-8192, default: 8192)
+            </p>
+          </div>
+
+          {/* Candidate Count */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Candidate Count
+            </label>
+            <select
+              value={localSettings.ai.generationConfig?.candidateCount || 1}
+              onChange={(e) => handleGenerationConfigChange('candidateCount', parseInt(e.target.value) || 1)}
+              style={selectStyle}
+            >
+              <option value="1">1 - Single response</option>
+              <option value="2">2 - Two variations</option>
+              <option value="3">3 - Three variations</option>
+              <option value="4">4 - Four variations</option>
+            </select>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Number of response variations to generate. Default: 1
+            </p>
+          </div>
+
+          {/* Presence Penalty */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
+              Presence Penalty: {localSettings.ai.generationConfig?.presencePenalty || 0.0}
+            </label>
+            <input
+              type="range"
+              min="-2"
+              max="2"
+              step="0.1"
+              value={localSettings.ai.generationConfig?.presencePenalty || 0.0}
+              onChange={(e) => handleGenerationConfigChange('presencePenalty', parseFloat(e.target.value))}
+              style={{ ...inputStyle, width: '100%' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Penalize new topics (-2.0 to 2.0). Default: 0.0 (no penalty)
+            </p>
+          </div>
+
+          {/* Frequency Penalty */}
+          <div style={{ marginBottom: '0' }}>
+            <label style={labelStyle}>
+              Frequency Penalty: {localSettings.ai.generationConfig?.frequencyPenalty || 0.0}
+            </label>
+            <input
+              type="range"
+              min="-2"
+              max="2"
+              step="0.1"
+              value={localSettings.ai.generationConfig?.frequencyPenalty || 0.0}
+              onChange={(e) => handleGenerationConfigChange('frequencyPenalty', parseFloat(e.target.value))}
+              style={{ ...inputStyle, width: '100%' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+              Penalize repetition (-2.0 to 2.0). Default: 0.0 (no penalty)
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Appearance Settings */}
