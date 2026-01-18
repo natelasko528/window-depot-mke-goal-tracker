@@ -4,9 +4,11 @@
  */
 
 // Voice chat state
-let audioContext = null;
+let audioContext = null; // For playback (24kHz)
+let captureContext = null; // For microphone capture (16kHz)
 let mediaStream = null;
 let mediaRecorder = null;
+let scriptProcessor = null;
 let webSocket = null;
 let audioQueue = [];
 let isPlaying = false;
@@ -66,8 +68,17 @@ const base64ToArrayBuffer = (base64) => {
   return bytes.buffer;
 };
 
-// Note: arrayBufferToBase64 would be used for sending raw PCM audio
-// Currently audio is sent as base64-encoded webm chunks via MediaRecorder
+/**
+ * Convert ArrayBuffer to base64
+ */
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+};
 
 /**
  * Play audio from PCM data
@@ -582,8 +593,16 @@ class VoiceChatSession {
         },
       });
 
-      // Create audio context for analysis
-      const ctx = initAudioContext();
+      // Create separate audio context for capturing raw PCM (16kHz, mono, 16-bit)
+      // This is different from playback context which uses 24kHz
+      if (!captureContext) {
+        captureContext = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 16000, // Must match API requirement
+        });
+      }
+      const ctx = captureContext;
+      
+      // Create source and analyser for audio level monitoring
       const source = ctx.createMediaStreamSource(mediaStream);
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 256;
@@ -592,31 +611,34 @@ class VoiceChatSession {
       // Start audio level monitoring
       this.startAudioLevelMonitoring();
 
-      // Create MediaRecorder for capturing audio
-      const options = { mimeType: 'audio/webm;codecs=opus' };
+      // Create ScriptProcessorNode to capture raw PCM audio
+      // Buffer size 4096 samples = ~256ms at 16kHz (good for real-time streaming)
+      scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
+      
+      scriptProcessor.onaudioprocess = (event) => {
+        if (!this.isListening || !this.isConnected) return;
 
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        // Fallback for browsers that don't support opus
-        mediaRecorder = new MediaRecorder(mediaStream);
-      } else {
-        mediaRecorder = new MediaRecorder(mediaStream, options);
-      }
+        // Get Float32 audio data from input buffer
+        const inputBuffer = event.inputBuffer;
+        const inputData = inputBuffer.getChannelData(0); // Mono channel
 
-      // Handle audio data chunks
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data.size > 0 && this.isListening && this.isConnected) {
-          // Convert blob to base64 and send
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1];
-            this.sendAudio(base64);
-          };
-          reader.readAsDataURL(event.data);
+        // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767) PCM
+        const pcmData = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          // Clamp values to prevent overflow
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
+
+        // Convert Int16Array to base64 for sending
+        const base64 = arrayBufferToBase64(pcmData.buffer);
+        this.sendAudio(base64);
       };
 
-      // Start recording in chunks
-      mediaRecorder.start(250); // Send audio every 250ms
+      // Connect source to script processor (for PCM capture) and analyser (for level monitoring)
+      source.connect(scriptProcessor);
+      scriptProcessor.connect(ctx.destination); // Required for ScriptProcessorNode to work
+      
       this.isListening = true;
       this.onStatusChange('listening');
 
@@ -661,6 +683,7 @@ class VoiceChatSession {
   /**
    * Send audio data to the server
    * Uses correct realtimeInput.audio format per Gemini Live API spec
+   * MIME type must be 'audio/pcm' or 'audio/pcm;rate=16000' - not WebM/Opus
    */
   sendAudio(base64Audio) {
     if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
@@ -671,7 +694,7 @@ class VoiceChatSession {
       realtimeInput: {
         audio: {
           data: base64Audio,
-          mimeType: 'audio/webm;codecs=opus',
+          mimeType: 'audio/pcm;rate=16000', // API requires PCM, not WebM/Opus
         },
       },
     };
@@ -712,6 +735,11 @@ class VoiceChatSession {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
     }
+    
+    if (scriptProcessor) {
+      scriptProcessor.disconnect();
+      scriptProcessor = null;
+    }
 
     this.stopAudioLevelMonitoring();
     this.isListening = false;
@@ -730,6 +758,11 @@ class VoiceChatSession {
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
+    }
+    
+    if (captureContext) {
+      captureContext.close().catch(() => {});
+      captureContext = null;
     }
 
     if (webSocket) {
