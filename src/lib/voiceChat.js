@@ -823,7 +823,7 @@ class VoiceChatSession {
             // Note: Primary transcripts should come from outputTranscription.text
             console.log('Text in part.text (may be reasoning/context):', text.substring(0, 200));
             // Only send to transcript if it looks like actual speech (not a single-line reasoning header)
-            if (text.length > 20 && !/^[\*\s]+$/.test(text)) {
+            if (text.length > 20 && !/^[*\s]+$/.test(text)) {
               this.onTranscript(text, 'assistant');
             }
           }
