@@ -42,22 +42,6 @@ import {
   getLocalSnapshots,
 } from './lib/snapshots';
 import DebugLogger from './components/DebugLogger';
-import OnboardingFlow from './components/OnboardingFlow';
-import {
-  debounce,
-  throttle,
-  VirtualScroller,
-  memoize,
-  scheduleIdleTask
-} from './lib/performance';
-import {
-  ariaLabels,
-  accessibilityAnnouncer,
-  prefersReducedMotion,
-  focusManagement,
-  keyboardNav,
-  createSkipLink
-} from './lib/accessibility';
 
 // ========================================
 // CONSTANTS
@@ -114,34 +98,6 @@ const DURATIONS = [
   { value: 120, label: '2 hours' },
   { value: 180, label: '3 hours' },
   { value: 240, label: '4 hours' },
-];
-
-const MOTIVATIONAL_QUOTES = [
-  "Success is the sum of small efforts repeated day in and day out.",
-  "The harder you work for something, the greater you'll feel when you achieve it.",
-  "Don't watch the clock; do what it does. Keep going.",
-  "Believe in yourself and all that you are.",
-  "Great things never come from comfort zones.",
-  "The only way to do great work is to love what you do.",
-  "Success doesn't just find you. You have to go out and get it.",
-  "Dream it. Wish it. Do it.",
-  "Little things make big days.",
-  "It's going to be hard, but hard does not mean impossible.",
-  "Don't stop when you're tired. Stop when you're done.",
-  "Wake up with determination. Go to bed with satisfaction.",
-  "Do something today that your future self will thank you for.",
-  "The key to success is to focus on goals, not obstacles.",
-  "You don't have to be great to start, but you have to start to be great.",
-  "Your limitation—it's only your imagination.",
-  "Sometimes later becomes never. Do it now.",
-  "Push yourself, because no one else is going to do it for you.",
-  "Make each day your masterpiece.",
-  "The best time to plant a tree was 20 years ago. The second best time is now.",
-  "Opportunities don't happen. You create them.",
-  "Success is what comes after you stop making excuses.",
-  "Winners make a habit of manufacturing their own positive expectations.",
-  "The secret of getting ahead is getting started.",
-  "Go the extra mile. It's never crowded there.",
 ];
 
 // ========================================
@@ -397,6 +353,8 @@ export default function WindowDepotTracker() {
   });
   const [themeMode, setThemeMode] = useState('system');
   const [dailySnapshots, setDailySnapshots] = useState({});
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(prefersReducedMotion());
 
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
@@ -608,110 +566,6 @@ export default function WindowDepotTracker() {
   // ========================================
 
   const currentTheme = useMemo(() => getTheme(themeMode), [themeMode]);
-  // ========================================
-  // ONBOARDING CHECK
-  // ========================================
-
-  useEffect(() => {
-    if (!isInitialized || isLoading || currentUser) return;
-
-    const onboardingComplete = localStorage.getItem('onboarding_completed');
-    if (!onboardingComplete) {
-      setShowOnboarding(true);
-    }
-  }, [isInitialized, isLoading, currentUser]);
-
-  // ========================================
-  // REDUCED MOTION DETECTION
-  // ========================================
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const handleChange = (e) => {
-      setReduceMotion(e.matches);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  // ========================================
-  // ACCESSIBILITY & KEYBOARD SHORTCUTS
-  // ========================================
-
-  useEffect(() => {
-    createSkipLink();
-
-    const handleKeyDown = (e) => {
-      // Quick increment shortcuts (when on Dashboard, no modifiers)
-      if (activeView === 'dashboard' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        const target = e.target;
-        // Don't trigger if user is typing in an input
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-        switch (e.key.toLowerCase()) {
-          case 'r':
-            e.preventDefault();
-            handleIncrement('reviews');
-            showToast('Review added! (Press R to add more)', 'success');
-            break;
-          case 'd':
-            e.preventDefault();
-            handleIncrement('demos');
-            showToast('Demo added! (Press D to add more)', 'success');
-            break;
-          case 'c':
-            e.preventDefault();
-            handleIncrement('callbacks');
-            showToast('Callback added! (Press C to add more)', 'success');
-            break;
-          default:
-            break;
-        }
-      }
-
-      // Navigation shortcuts (Ctrl/Cmd + key)
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
-        switch (e.key.toLowerCase()) {
-          case 'd':
-            e.preventDefault();
-            setActiveView('dashboard');
-            accessibilityAnnouncer.announce('Switched to Dashboard');
-            break;
-          case 'g':
-            e.preventDefault();
-            setActiveView('goals');
-            accessibilityAnnouncer.announce('Switched to Goals');
-            break;
-          case 'a':
-            e.preventDefault();
-            setActiveView('appointments');
-            accessibilityAnnouncer.announce('Switched to Appointments');
-            break;
-          case 'f':
-            e.preventDefault();
-            setActiveView('feed');
-            accessibilityAnnouncer.announce('Switched to Feed');
-            break;
-          case 'l':
-            e.preventDefault();
-            setActiveView('leaderboard');
-            accessibilityAnnouncer.announce('Switched to Leaderboard');
-            break;
-          default:
-            break;
-        }
-      } else if (e.key === 'Escape' && showOnboarding) {
-        setShowOnboarding(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      accessibilityAnnouncer.cleanup();
-    };
-  }, [showOnboarding, activeView, handleIncrement, showToast]);
 
   // ========================================
   // REAL-TIME SUBSCRIPTIONS
@@ -2469,7 +2323,7 @@ export default function WindowDepotTracker() {
         )}
         
         {activeView === 'leaderboard' && (
-          <Leaderboard users={users} dailyLogs={dailyLogs} currentUser={currentUser} theme={currentTheme} />
+          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} theme={currentTheme} />
         )}
 
         {activeView === 'history' && (
@@ -2965,9 +2819,11 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
     // Time of day insights
     if (hour < 12 && weekStats.reviews < currentUser.goals.reviews * 2) {
-      insights.push("You're usually more productive in the morning - start strong!");
+      insights.push("🌅 You are usually more productive in the morning - start strong!");
     } else if (hour >= 14 && hour < 17 && todayStats.reviews === 0) {
-      insights.push("Afternoon slump? Time to get some reviews done!");
+      insights.push("⚡ Afternoon slump? Time to get some reviews done!");
+    } else if (hour >= 17) {
+      insights.push("🎯 Evening push! You can knock out a few more before the day ends!");
     }
 
     // Category performance
@@ -2981,6 +2837,33 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
     if (callbackRatio < 0.3 && weekStats.callbacks > 0) {
       insights.push("Callbacks are trailing. Consider a callback blitz!");
+    }
+
+    // Streak motivation
+    if (calculateStreaks.currentStreak > 0) {
+      if (calculateStreaks.currentStreak === 1) {
+        insights.push("🔥 You started your streak! Keep it alive today!");
+      } else if (calculateStreaks.currentStreak >= 7) {
+        insights.push(`🏆 Amazing! ${calculateStreaks.currentStreak}-day streak going! Don't break it now!`);
+      } else {
+        insights.push(`🔥 ${calculateStreaks.currentStreak}-day streak! One more day to beat your record?`);
+      }
+    } else if (calculateStreaks.bestStreak > 0) {
+      insights.push(`📈 You've done ${calculateStreaks.bestStreak} days before - start a new streak today!`);
+    }
+
+    // Almost there messages
+    if (reviewRatio > 0.8 && reviewRatio < 1) {
+      const remaining = currentUser.goals.reviews - todayStats.reviews;
+      insights.push(`⏰ Just ${remaining} more review${remaining !== 1 ? 's' : ''} to hit your goal!`);
+    }
+    if (demoRatio > 0.8 && demoRatio < 1) {
+      const remaining = currentUser.goals.demos - todayStats.demos;
+      insights.push(`⏰ Just ${remaining} more demo${remaining !== 1 ? 's' : ''} to hit your goal!`);
+    }
+    if (callbackRatio > 0.8 && callbackRatio < 1) {
+      const remaining = currentUser.goals.callbacks - todayStats.callbacks;
+      insights.push(`⏰ Just ${remaining} more callback${remaining !== 1 ? 's' : ''} to hit your goal!`);
     }
 
     if (reviewRatio >= 1 && demoRatio >= 1 && callbackRatio >= 1) {
@@ -3002,18 +2885,6 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
     return insights.length > 0 ? insights : ["Keep pushing towards your goals!"];
   }, [currentUser, todayStats, weekStats, last7Days, calculateStreaks]);
 
-  // ========================================
-  // DAILY MOTIVATIONAL QUOTE
-  // ========================================
-
-  const dailyQuote = useMemo(() => {
-    // Use today's date to consistently pick the same quote all day
-    const today = new Date();
-    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
-    const quoteIndex = dayOfYear % MOTIVATIONAL_QUOTES.length;
-    return MOTIVATIONAL_QUOTES[quoteIndex];
-  }, []);
-
   const handleIncrement = (categoryId) => {
     onIncrement(categoryId);
     addToHistory({ categoryId, type: 'increment' });
@@ -3034,7 +2905,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
   return (
     <div>
       <h2 style={{
-        margin: '0 0 16px 0',
+        margin: '0 0 20px 0',
         fontSize: '24px',
         fontWeight: '700',
         color: THEME.text,
@@ -3042,46 +2913,6 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       }}>
         Today's Progress
       </h2>
-
-      {/* Daily Motivational Quote */}
-      <div style={{
-        background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        marginBottom: '20px',
-        boxShadow: THEME.shadows.md,
-        color: THEME.white,
-        textAlign: 'center',
-      }}>
-        <div style={{
-          fontSize: '11px',
-          fontWeight: '600',
-          opacity: 0.9,
-          marginBottom: '6px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-        }}>
-          Daily Motivation
-        </div>
-        <div style={{
-          fontSize: '15px',
-          fontWeight: '500',
-          fontStyle: 'italic',
-          opacity: 0.95,
-          lineHeight: '1.5',
-          fontFamily: 'var(--font-body)',
-        }}>
-          "{dailyQuote}"
-        </div>
-        <div style={{
-          fontSize: '11px',
-          marginTop: '8px',
-          opacity: 0.75,
-          fontFamily: 'var(--font-body)',
-        }}>
-          Press R/D/C for quick add • {Object.keys(CATEGORIES).map(k => CATEGORIES[k].name[0]).join('/')}
-        </div>
-      </div>
 
       <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
         {CATEGORIES.map((category, index) => {
@@ -3717,9 +3548,6 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
     products: [],
     notes: '',
     date: getToday(),
-    time: '09:00',
-    duration: 60,
-    status: 'scheduled',
     countsAsDemo: true,
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -3731,9 +3559,6 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
         products: [],
         notes: '',
         date: getToday(),
-        time: '09:00',
-        duration: 60,
-        status: 'scheduled',
         countsAsDemo: true,
       });
       setShowForm(false);
@@ -3843,77 +3668,7 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
               }}
             />
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
-                Time
-              </label>
-              <select
-                value={formData.time}
-                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  border: `2px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  fontSize: '16px',
-                  boxSizing: 'border-box',
-                  cursor: 'pointer',
-                }}
-              >
-                {TIME_SLOTS.map(time => (
-                  <option key={time} value={time.split(' ')[0].padStart(5, '0')}>{time}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
-                Duration
-              </label>
-              <select
-                value={formData.duration}
-                onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) })}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  border: `2px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  fontSize: '16px',
-                  boxSizing: 'border-box',
-                  cursor: 'pointer',
-                }}
-              >
-                {DURATIONS.map(dur => (
-                  <option key={dur.value} value={dur.value}>{dur.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
-              Status
-            </label>
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              style={{
-                width: '100%',
-                padding: '12px',
-                border: `2px solid ${THEME.border}`,
-                borderRadius: '8px',
-                fontSize: '16px',
-                boxSizing: 'border-box',
-                cursor: 'pointer',
-              }}
-            >
-              {APPOINTMENT_STATUS.map(status => (
-                <option key={status.id} value={status.id}>{status.label}</option>
-              ))}
-            </select>
-          </div>
-
+          
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Product Interests
@@ -4117,44 +3872,22 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                 <div>
-                  <div style={{
-                    fontSize: '18px',
-                    fontWeight: '700',
-                    color: THEME.text,
+                  <div style={{ 
+                    fontSize: '18px', 
+                    fontWeight: '700', 
+                    color: THEME.text, 
                     marginBottom: '6px',
                     fontFamily: 'var(--font-display)',
                   }}>
                     {appt.customerName}
                   </div>
-                  <div style={{
-                    fontSize: '14px',
+                  <div style={{ 
+                    fontSize: '14px', 
                     color: THEME.textLight,
                     fontFamily: 'var(--font-body)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    flexWrap: 'wrap',
                   }}>
-                    <span>📅 {formatDate(appt.date)}</span>
-                    {appt.time && <span>🕐 {appt.time}</span>}
-                    {appt.duration && <span>⏱️ {appt.duration} min</span>}
+                    {formatDate(appt.date)}
                   </div>
-                  {appt.status && (
-                    <div style={{ marginTop: '6px' }}>
-                      <span style={{
-                        padding: '4px 10px',
-                        background: APPOINTMENT_STATUS.find(s => s.id === appt.status)?.color || THEME.primary,
-                        color: THEME.white,
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                      }}>
-                        {APPOINTMENT_STATUS.find(s => s.id === appt.status)?.label || appt.status}
-                      </span>
-                    </div>
-                  )}
                 </div>
                 <button
                   onClick={() => onDelete(appt.id)}
@@ -4769,190 +4502,22 @@ function Feed({
 // LEADERBOARD COMPONENT
 // ========================================
 
-function Leaderboard({ users, dailyLogs, currentUser, theme }) {
+function Leaderboard({ leaderboard, currentUser, theme }) {
   const THEME = theme;
-  const [timeframe, setTimeframe] = useState('week');
-  const [category, setCategory] = useState('overall');
-
-  // Calculate leaderboard based on selected timeframe and category
-  const leaderboard = useMemo(() => {
-    // Determine date range
-    let startDate;
-    const today = getToday();
-
-    switch (timeframe) {
-      case 'today':
-        startDate = today;
-        break;
-      case 'week':
-        startDate = getWeekStart();
-        break;
-      case 'month':
-        startDate = getMonthStart();
-        break;
-      case 'alltime':
-        startDate = '2000-01-01'; // Far past date
-        break;
-      default:
-        startDate = getWeekStart();
-    }
-
-    // Calculate scores
-    const scores = users.map(user => {
-      let reviews = 0, demos = 0, callbacks = 0;
-
-      Object.entries(dailyLogs).forEach(([date, usersData]) => {
-        if (date >= startDate && usersData[user.id]) {
-          reviews += (usersData[user.id].reviews || 0);
-          demos += (usersData[user.id].demos || 0);
-          callbacks += (usersData[user.id].callbacks || 0);
-        }
-      });
-
-      let total;
-      if (category === 'reviews') total = reviews;
-      else if (category === 'demos') total = demos;
-      else if (category === 'callbacks') total = callbacks;
-      else total = reviews + demos + callbacks;
-
-      return { ...user, total, reviews, demos, callbacks };
-    });
-
-    return scores.sort((a, b) => b.total - a.total);
-  }, [users, dailyLogs, timeframe, category]);
-
   const medals = [THEME.gold, THEME.silver, THEME.bronze];
-  const medalGradients = [
-    THEME.gradients.gold,
-    'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
-    'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
-  ];
-
-  const currentUserRank = leaderboard.findIndex(u => u.id === currentUser?.id) + 1;
-  const leaderTotal = leaderboard[0]?.total || 0;
-
+  
   return (
     <div>
-      <h2 style={{
-        margin: '0 0 20px 0',
-        fontSize: '24px',
-        fontWeight: '700',
+      <h2 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '24px', 
+        fontWeight: '700', 
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
-        Leaderboard
+        Weekly Leaderboard
       </h2>
-
-      {/* Timeframe Selector */}
-      <div style={{
-        background: THEME.white,
-        borderRadius: '12px',
-        padding: '6px',
-        marginBottom: '16px',
-        display: 'flex',
-        gap: '6px',
-        boxShadow: THEME.shadows.md,
-      }}>
-        {[
-          { id: 'today', label: 'Today' },
-          { id: 'week', label: 'This Week' },
-          { id: 'month', label: 'This Month' },
-          { id: 'alltime', label: 'All Time' },
-        ].map(tf => (
-          <button
-            key={tf.id}
-            onClick={() => setTimeframe(tf.id)}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              background: timeframe === tf.id ? THEME.gradients.primary : 'transparent',
-              border: 'none',
-              borderRadius: '8px',
-              color: timeframe === tf.id ? THEME.white : THEME.text,
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              fontFamily: 'var(--font-body)',
-            }}
-          >
-            {tf.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Category Tabs */}
-      <div style={{
-        background: THEME.white,
-        borderRadius: '12px',
-        padding: '6px',
-        marginBottom: '16px',
-        display: 'flex',
-        gap: '6px',
-        boxShadow: THEME.shadows.md,
-      }}>
-        {[
-          { id: 'overall', label: 'Overall', icon: '🏆' },
-          { id: 'reviews', label: 'Reviews', icon: '⭐' },
-          { id: 'demos', label: 'Demos', icon: '📅' },
-          { id: 'callbacks', label: 'Callbacks', icon: '📞' },
-        ].map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => setCategory(cat.id)}
-            style={{
-              flex: 1,
-              padding: '10px 12px',
-              background: category === cat.id ? THEME.gradients.success : 'transparent',
-              border: 'none',
-              borderRadius: '8px',
-              color: category === cat.id ? THEME.white : THEME.text,
-              fontSize: '13px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              fontFamily: 'var(--font-body)',
-            }}
-          >
-            <div>{cat.icon}</div>
-            <div style={{ fontSize: '11px', marginTop: '2px' }}>{cat.label}</div>
-          </button>
-        ))}
-      </div>
-
-      {/* Current User Stats */}
-      {currentUser && currentUserRank > 0 && (
-        <div style={{
-          background: THEME.gradients.primary,
-          borderRadius: '12px',
-          padding: '16px',
-          marginBottom: '16px',
-          color: THEME.white,
-          boxShadow: THEME.shadows.md,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Your Rank</div>
-              <div style={{ fontSize: '24px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
-                #{currentUserRank}
-              </div>
-            </div>
-            {currentUserRank > 1 && leaderboard[0] && (
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Behind Leader</div>
-                <div style={{ fontSize: '20px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
-                  {leaderTotal - (leaderboard.find(u => u.id === currentUser.id)?.total || 0)}
-                </div>
-              </div>
-            )}
-            {currentUserRank === 1 && (
-              <div style={{ fontSize: '28px' }}>👑</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Leaderboard List */}
+      
       <div style={{ display: 'grid', gap: '12px' }}>
         {leaderboard.length === 0 ? (
           <div style={{
@@ -4963,7 +4528,12 @@ function Leaderboard({ users, dailyLogs, currentUser, theme }) {
             color: THEME.textLight,
             boxShadow: THEME.shadows.md,
           }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🏆</div>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px',
+            }}>
+              🏆
+            </div>
             <div style={{
               fontSize: '18px',
               fontWeight: '600',
@@ -4971,30 +4541,39 @@ function Leaderboard({ users, dailyLogs, currentUser, theme }) {
               marginBottom: '8px',
               fontFamily: 'var(--font-display)',
             }}>
-              No activity yet
+              No activity this week yet
             </div>
-            <div style={{ fontSize: '14px', color: THEME.textLight }}>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+            }}>
               Start tracking to see rankings!
             </div>
           </div>
         ) : (
           leaderboard.map((user, index) => {
             const isTopThree = index < 3;
-            const isCurrentUser = user.id === currentUser?.id;
-            const prevRank = index; // Could track previous rankings for trend arrows
-
+            const isCurrentUser = user.id === currentUser.id;
+            const medalGradients = [
+              THEME.gradients.gold,
+              'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
+              'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
+            ];
+            
             return (
               <div
                 key={user.id}
                 style={{
-                  background: isCurrentUser ? THEME.gradients.cardHover : THEME.white,
+                  background: isCurrentUser 
+                    ? THEME.gradients.cardHover 
+                    : THEME.white,
                   borderRadius: '16px',
                   padding: '20px',
                   boxShadow: isTopThree ? THEME.shadows.layered : THEME.shadows.md,
-                  border: isCurrentUser
-                    ? `2px solid ${THEME.primary}`
-                    : isTopThree
-                      ? `2px solid ${medals[index]}`
+                  border: isCurrentUser 
+                    ? `2px solid ${THEME.primary}` 
+                    : isTopThree 
+                      ? `2px solid ${medals[index]}` 
                       : `1px solid ${THEME.border}`,
                   animation: `fadeInUp 0.4s ease-out ${index * 0.1}s both`,
                   transform: isTopThree ? 'scale(1.02)' : 'scale(1)',
@@ -5019,105 +4598,34 @@ function Leaderboard({ users, dailyLogs, currentUser, theme }) {
                     {isTopThree ? ['🥇', '🥈', '🥉'][index] : index + 1}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{
-                      fontSize: '17px',
-                      fontWeight: '700',
+                    <div style={{ 
+                      fontSize: '17px', 
+                      fontWeight: '700', 
                       color: THEME.text,
                       fontFamily: 'var(--font-display)',
                       marginBottom: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
                     }}>
                       {user.name}
                       {isCurrentUser && ' (You)'}
                     </div>
-                    <div style={{
-                      fontSize: '13px',
+                    <div style={{ 
+                      fontSize: '13px', 
                       color: THEME.textLight,
                       fontFamily: 'var(--font-body)',
                     }}>
                       {user.role === 'manager' ? 'Manager' : 'Employee'}
                     </div>
-
-                    {/* Category Breakdown Mini Chart */}
-                    {category === 'overall' && (
-                      <div style={{ marginTop: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {user.reviews > 0 && (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '11px',
-                            color: THEME.textLight,
-                          }}>
-                            <div style={{
-                              width: Math.max(20, (user.reviews / user.total) * 60) + 'px',
-                              height: '4px',
-                              background: THEME.gradients.warning,
-                              borderRadius: '2px',
-                            }} />
-                            {user.reviews}
-                          </div>
-                        )}
-                        {user.demos > 0 && (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '11px',
-                            color: THEME.textLight,
-                          }}>
-                            <div style={{
-                              width: Math.max(20, (user.demos / user.total) * 60) + 'px',
-                              height: '4px',
-                              background: THEME.gradients.success,
-                              borderRadius: '2px',
-                            }} />
-                            {user.demos}
-                          </div>
-                        )}
-                        {user.callbacks > 0 && (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '11px',
-                            color: THEME.textLight,
-                          }}>
-                            <div style={{
-                              width: Math.max(20, (user.callbacks / user.total) * 60) + 'px',
-                              height: '4px',
-                              background: THEME.gradients.primary,
-                              borderRadius: '2px',
-                            }} />
-                            {user.callbacks}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      background: THEME.gradients.primary,
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                      fontFamily: 'var(--font-mono)',
-                    }}>
-                      {user.total}
-                    </div>
-                    {index > 0 && leaderboard[index - 1] && (
-                      <div style={{
-                        fontSize: '11px',
-                        color: THEME.textLight,
-                        marginTop: '2px',
-                      }}>
-                        -{leaderboard[index - 1].total - user.total} behind
-                      </div>
-                    )}
+                  <div style={{ 
+                    fontSize: '28px', 
+                    fontWeight: '700', 
+                    background: THEME.gradients.primary,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    fontFamily: 'var(--font-mono)',
+                  }}>
+                    {user.weeklyTotal}
                   </div>
                 </div>
               </div>
@@ -8357,64 +7865,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
         Settings
       </h2>
 
-      {/* Settings Tabs Navigation */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        marginBottom: '24px',
-        overflowX: 'auto',
-        paddingBottom: '8px',
-        WebkitOverflowScrolling: 'touch',
-      }}>
-        {[
-          { id: 'ai', label: 'AI Coach', icon: Bot },
-          { id: 'notifications', label: 'Notifications', icon: Bell },
-          { id: 'privacy', label: 'Privacy', icon: Shield },
-          { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
-          { id: 'appearance', label: 'Appearance', icon: Palette },
-          { id: 'integrations', label: 'Integrations', icon: Package },
-        ].map(tab => {
-          const TabIcon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSettingsTab(tab.id)}
-              style={{
-                padding: '10px 16px',
-                background: activeSettingsTab === tab.id ? THEME.primary : THEME.secondary,
-                color: activeSettingsTab === tab.id ? THEME.white : THEME.text,
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: activeSettingsTab === tab.id ? '600' : '500',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s ease',
-                flexShrink: 0,
-              }}
-              onMouseEnter={(e) => {
-                if (activeSettingsTab !== tab.id) {
-                  e.currentTarget.style.background = 'rgba(0,123,255,0.08)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeSettingsTab !== tab.id) {
-                  e.currentTarget.style.background = THEME.secondary;
-                }
-              }}
-            >
-              <TabIcon size={14} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* AI Settings Section */}
-      {activeSettingsTab === 'ai' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{

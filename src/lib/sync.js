@@ -151,6 +151,19 @@ export const syncUsersFromSupabase = async () => {
       role: user.role,
       goals: user.goals,
       createdAt: user.created_at,
+      // Gamification fields
+      xp: user.xp || 0,
+      level: user.level || 1,
+      achievements: user.achievements || [],
+      achievementProgress: user.achievement_progress || {},
+      currentStreak: user.current_streak || 0,
+      longestStreak: user.longest_streak || 0,
+      lastActivityDate: user.last_activity_date,
+      totalSales: user.total_sales || 0,
+      // Admin fields
+      archived: user.archived || false,
+      archivedAt: user.archived_at,
+      archivedBy: user.archived_by,
     }));
 
     await storage.set('users', users);
@@ -285,6 +298,177 @@ export const syncFeedFromSupabase = async () => {
   }
 };
 
+// Sync achievements from Supabase to IndexedDB
+export const syncAchievementsFromSupabase = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('achievements')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    await storage.set('achievements', data || []);
+    return data || [];
+  } catch (error) {
+    console.error('Failed to sync achievements from Supabase:', error);
+    return null;
+  }
+};
+
+// Sync challenges from Supabase to IndexedDB
+export const syncChallengesFromSupabase = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('challenges')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Transform to app format
+    const challenges = (data || []).map(challenge => ({
+      id: challenge.id,
+      title: challenge.title,
+      description: challenge.description,
+      challengeType: challenge.challenge_type,
+      goalType: challenge.goal_type,
+      goalValue: challenge.goal_value,
+      xpReward: challenge.xp_reward,
+      startDate: challenge.start_date,
+      endDate: challenge.end_date,
+      isActive: challenge.is_active,
+      createdBy: challenge.created_by,
+      targetUsers: challenge.target_users || [],
+    }));
+
+    await storage.set('challenges', challenges);
+    return challenges;
+  } catch (error) {
+    console.error('Failed to sync challenges from Supabase:', error);
+    return null;
+  }
+};
+
+// Sync user challenges from Supabase to IndexedDB
+export const syncUserChallengesFromSupabase = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('user_challenges')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Transform to app format
+    const userChallenges = (data || []).map(uc => ({
+      id: uc.id,
+      userId: uc.user_id,
+      challengeId: uc.challenge_id,
+      progress: uc.progress,
+      completed: uc.completed,
+      completedAt: uc.completed_at,
+    }));
+
+    await storage.set('userChallenges', userChallenges);
+    return userChallenges;
+  } catch (error) {
+    console.error('Failed to sync user challenges from Supabase:', error);
+    return null;
+  }
+};
+
+// Sync rewards from Supabase to IndexedDB
+export const syncRewardsFromSupabase = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('rewards')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Transform to app format
+    const rewards = (data || []).map(reward => ({
+      id: reward.id,
+      name: reward.name,
+      description: reward.description,
+      rewardType: reward.reward_type,
+      rewardCategory: reward.reward_category,
+      requiredLevel: reward.required_level,
+      requiredAchievements: reward.required_achievements || [],
+      icon: reward.icon,
+    }));
+
+    await storage.set('rewards', rewards);
+    return rewards;
+  } catch (error) {
+    console.error('Failed to sync rewards from Supabase:', error);
+    return null;
+  }
+};
+
+// Sync user rewards from Supabase to IndexedDB
+export const syncUserRewardsFromSupabase = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('user_rewards')
+      .select('*')
+      .order('earned_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Transform to app format
+    const userRewards = (data || []).map(ur => ({
+      id: ur.id,
+      userId: ur.user_id,
+      rewardId: ur.reward_id,
+      earnedAt: ur.earned_at,
+      claimed: ur.claimed,
+      claimedAt: ur.claimed_at,
+    }));
+
+    await storage.set('userRewards', userRewards);
+    return userRewards;
+  } catch (error) {
+    console.error('Failed to sync user rewards from Supabase:', error);
+    return null;
+  }
+};
+
+// Sync audit log from Supabase to IndexedDB
+export const syncAuditLogFromSupabase = async () => {
+  try {
+    // Only fetch last 1000 entries
+    const { data, error } = await supabase
+      .from('audit_log')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(1000);
+
+    if (error) throw error;
+
+    // Transform to app format
+    const auditLog = (data || []).map(log => ({
+      id: log.id,
+      userId: log.user_id,
+      userName: log.user_name,
+      action: log.action,
+      entityType: log.entity_type,
+      entityId: log.entity_id,
+      details: log.details,
+      timestamp: log.timestamp,
+    }));
+
+    await storage.set('auditLog', auditLog);
+    return auditLog;
+  } catch (error) {
+    console.error('Failed to sync audit log from Supabase:', error);
+    return null;
+  }
+};
+
 // Sync all data from Supabase
 export const syncAllFromSupabase = async () => {
   if (!navigator.onLine) {
@@ -293,14 +477,42 @@ export const syncAllFromSupabase = async () => {
   }
 
   try {
-    const [users, dailyLogs, appointments, feed] = await Promise.all([
+    const [
+      users,
+      dailyLogs,
+      appointments,
+      feed,
+      achievements,
+      challenges,
+      userChallenges,
+      rewards,
+      userRewards,
+      auditLog,
+    ] = await Promise.all([
       syncUsersFromSupabase(),
       syncDailyLogsFromSupabase(),
       syncAppointmentsFromSupabase(),
       syncFeedFromSupabase(),
+      syncAchievementsFromSupabase(),
+      syncChallengesFromSupabase(),
+      syncUserChallengesFromSupabase(),
+      syncRewardsFromSupabase(),
+      syncUserRewardsFromSupabase(),
+      syncAuditLogFromSupabase(),
     ]);
 
-    return { users, dailyLogs, appointments, feed };
+    return {
+      users,
+      dailyLogs,
+      appointments,
+      feed,
+      achievements,
+      challenges,
+      userChallenges,
+      rewards,
+      userRewards,
+      auditLog,
+    };
   } catch (error) {
     console.error('Failed to sync all data from Supabase:', error);
     return null;
