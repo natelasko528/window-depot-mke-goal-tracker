@@ -7834,7 +7834,64 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
         Settings
       </h2>
 
+      {/* Settings Tabs Navigation */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginBottom: '24px',
+        overflowX: 'auto',
+        paddingBottom: '8px',
+        WebkitOverflowScrolling: 'touch',
+      }}>
+        {[
+          { id: 'ai', label: 'AI Coach', icon: Bot },
+          { id: 'notifications', label: 'Notifications', icon: Bell },
+          { id: 'privacy', label: 'Privacy', icon: Shield },
+          { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+          { id: 'appearance', label: 'Appearance', icon: Palette },
+          { id: 'integrations', label: 'Integrations', icon: Package },
+        ].map(tab => {
+          const TabIcon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSettingsTab(tab.id)}
+              style={{
+                padding: '10px 16px',
+                background: activeSettingsTab === tab.id ? THEME.primary : THEME.secondary,
+                color: activeSettingsTab === tab.id ? THEME.white : THEME.text,
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: activeSettingsTab === tab.id ? '600' : '500',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s ease',
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => {
+                if (activeSettingsTab !== tab.id) {
+                  e.currentTarget.style.background = 'rgba(0,123,255,0.08)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeSettingsTab !== tab.id) {
+                  e.currentTarget.style.background = THEME.secondary;
+                }
+              }}
+            >
+              <TabIcon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* AI Settings Section */}
+      {activeSettingsTab === 'ai' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
