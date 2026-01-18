@@ -1,13 +1,11 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
-const PREVIEW_URL = process.env.PREVIEW_URL || 'https://window-depot-mke-goal-tracker-git-c93a74-natelasko528s-projects.vercel.app';
-
 test.describe('Window Depot Goal Tracker - Preview Deployment Test', () => {
-  
+
   test('should load preview deployment page', async ({ page }) => {
-    // Go to preview URL
-    const response = await page.goto(PREVIEW_URL);
+    // Go to preview URL (uses PLAYWRIGHT_BASE_URL env var or baseURL from config)
+    const response = await page.goto('/');
     console.log('Response status:', response?.status());
     console.log('Response URL:', response?.url());
     

@@ -1,12 +1,11 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
-const VERCEL_URL = process.env.VERCEL_URL || 'https://window-depot-mke-goal-tracker.vercel.app';
-
 test.describe('Window Depot Goal Tracker - E2E Tests', () => {
-  
+
   test.beforeEach(async ({ page }) => {
-    await page.goto(VERCEL_URL);
+    // Uses baseURL from playwright.config.js
+    await page.goto('/');
   });
 
   test('should load app and show user selection', async ({ page }) => {
