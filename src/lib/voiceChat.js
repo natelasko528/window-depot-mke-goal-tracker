@@ -508,6 +508,16 @@ class VoiceChatSession {
       this.setupComplete = true;
       this.onStatusChange('ready');
       
+      // Signal to server that we're ready to receive content
+      if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+        const activityStartMessage = {
+          activityStart: {
+            type: 'microphone'
+          }
+        };
+        webSocket.send(JSON.stringify(activityStartMessage));
+      }
+      
       // Resolve the promise now that setup is complete
       if (this.setupPromiseResolve) {
         this.setupPromiseResolve();
