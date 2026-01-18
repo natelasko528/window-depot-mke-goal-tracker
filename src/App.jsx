@@ -2852,7 +2852,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
     }
 
     return insights.length > 0 ? insights : ["Keep pushing towards your goals!"];
-  }, [currentUser, todayStats, weekStats, last7Days]);
+  }, [currentUser, todayStats, weekStats, last7Days, calculateStreaks]);
 
   const handleIncrement = (categoryId) => {
     onIncrement(categoryId);
