@@ -1831,7 +1831,132 @@ export default function WindowDepotTracker() {
       showToast('Failed to delete post', 'error');
     }
   }, [showToast, feed]);
-  
+
+  const addReaction = useCallback(async (postId, emoji) => {
+    if (!currentUser || !postId) return;
+
+    try {
+      const reactionKey = `${postId}_reactions`;
+      const reactions = feedReactions[reactionKey] || {};
+      const userReactions = reactions[currentUser.id] || [];
+      const hasReacted = userReactions.includes(emoji);
+
+      if (hasReacted) {
+        const updatedUserReactions = userReactions.filter(e => e !== emoji);
+        const updatedReactions = {
+          ...reactions,
+          [currentUser.id]: updatedUserReactions.length > 0 ? updatedUserReactions : undefined,
+        };
+        if (!updatedUserReactions.length) delete updatedReactions[currentUser.id];
+
+        setFeedReactions(prev => ({
+          ...prev,
+          [reactionKey]: updatedReactions,
+        }));
+      } else {
+        setFeedReactions(prev => ({
+          ...prev,
+          [reactionKey]: {
+            ...reactions,
+            [currentUser.id]: [...userReactions, emoji],
+          },
+        }));
+      }
+
+      if (navigator.onLine && isSupabaseConfigured && !postId.startsWith('temp_')) {
+        await queueSyncOperation({
+          type: hasReacted ? 'delete' : 'upsert',
+          table: 'feed_reactions',
+          data: {
+            post_id: postId,
+            user_id: currentUser.id,
+            emoji,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+  }, [currentUser, feedReactions]);
+
+  const togglePinPost = useCallback(async (postId) => {
+    if (!currentUser || currentUser.role !== 'manager') return;
+
+    try {
+      const isPinned = pinnedPosts[postId];
+
+      if (isPinned) {
+        const updated = { ...pinnedPosts };
+        delete updated[postId];
+        setPinnedPosts(updated);
+      } else {
+        const pinnedCount = Object.values(pinnedPosts).filter(Boolean).length;
+        if (pinnedCount < 3) {
+          setPinnedPosts(prev => ({ ...prev, [postId]: true }));
+        } else {
+          showToast('Maximum 3 pinned posts allowed', 'warning');
+          return;
+        }
+      }
+
+      if (navigator.onLine && isSupabaseConfigured) {
+        await queueSyncOperation({
+          type: 'update',
+          table: 'feed_posts',
+          id: postId,
+          data: { is_pinned: !isPinned },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle pin:', error);
+    }
+  }, [currentUser, pinnedPosts, showToast]);
+
+  const updateFeedFilters = useCallback((newFilters) => {
+    setFeedFilters(prev => ({ ...prev, ...newFilters }));
+  }, []);
+
+  const markPostsAsRead = useCallback(() => {
+    setUnreadPosts(new Set());
+  }, []);
+
+  const getFilteredAndSortedFeed = useCallback(() => {
+    let filtered = feed.filter(post => {
+      if (feedFilters.type !== 'all' && post.type !== feedFilters.type) return false;
+      if (feedFilters.userId && post.userId !== feedFilters.userId) return false;
+      if (feedFilters.showOnlyMine && post.userId !== currentUser?.id) return false;
+      if (feedFilters.showOnlyLiked && !(post.likes || []).includes(currentUser?.id)) return false;
+      if (feedFilters.search) {
+        const searchLower = feedFilters.search.toLowerCase();
+        return post.content.toLowerCase().includes(searchLower) ||
+               post.userName.toLowerCase().includes(searchLower);
+      }
+      return true;
+    });
+
+    const pinned = filtered.filter(p => pinnedPosts[p.id]);
+    const unpinned = filtered.filter(p => !pinnedPosts[p.id]);
+
+    unpinned.sort((a, b) => {
+      switch (feedFilters.sortBy) {
+        case 'popular':
+          return (b.likes?.length || 0) - (a.likes?.length || 0);
+        case 'commented':
+          return (b.comments?.length || 0) - (a.comments?.length || 0);
+        case 'trending':
+          const scoreB = ((b.likes?.length || 0) * 1.5) + (b.comments?.length || 0);
+          const scoreA = ((a.likes?.length || 0) * 1.5) + (a.comments?.length || 0);
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return b.timestamp - a.timestamp;
+        case 'recent':
+        default:
+          return b.timestamp - a.timestamp;
+      }
+    });
+
+    return [...pinned, ...unpinned];
+  }, [feed, feedFilters, currentUser, pinnedPosts]);
+
   // ========================================
   // CALCULATED DATA
   // ========================================
@@ -1965,17 +2090,34 @@ export default function WindowDepotTracker() {
       theme={currentTheme}
     />;
   }
-  
+
+  // ========================================
+  // RENDER: ONBOARDING FLOW
+  // ========================================
+
+  if (showOnboarding) {
+    return (
+      <OnboardingFlow
+        onComplete={() => {
+          setShowOnboarding(false);
+          accessibilityAnnouncer.announce('Onboarding completed. Welcome to Goal Tracker!', false);
+        }}
+        theme={currentTheme}
+      />
+    );
+  }
+
   // ========================================
   // RENDER: MAIN APP
   // ========================================
-  
+
   return (
     <div style={{
       minHeight: '100vh',
       background: currentTheme.gradients.background,
       fontFamily: 'var(--font-body)',
       paddingBottom: '80px',
+      id: 'main-content',
     }}>
       {/* Offline Banner */}
       {!isOnline && (
