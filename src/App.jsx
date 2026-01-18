@@ -3937,13 +3937,40 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
 // FEED COMPONENT
 // ========================================
 
-function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost, theme }) {
+function Feed({
+  feed,
+  currentUser,
+  onAddPost,
+  onToggleLike,
+  onAddComment,
+  onEditPost,
+  onDeletePost,
+  onAddReaction,
+  onTogglePinPost,
+  onUpdateFilters,
+  onMarkAsRead,
+  filteredFeed,
+  feedReactions,
+  feedFilters,
+  pinnedPosts,
+  unreadCount,
+  theme,
+  users
+}) {
   const THEME = theme;
   const [newPost, setNewPost] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [commentingId, setCommentingId] = useState(null);
   const [newComment, setNewComment] = useState('');
+  const [showReactionPicker, setShowReactionPicker] = useState(null);
+  const [viewMode, setViewMode] = useState('feed'); // 'feed' or 'achievements'
+
+  const EMOJI_REACTIONS = ['👍', '❤️', '🔥', '💪', '🎉', '🎯'];
+
+  // Backwards compatibility - if new props not provided, use defaults
+  const displayFeed = filteredFeed || feed;
+  const reactions = feedReactions || {};
   
   const handlePost = () => {
     if (onAddPost(newPost)) {
@@ -3964,18 +3991,104 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
       setCommentingId(null);
     }
   };
-  
+
+  const handleAddReaction = (postId, emoji) => {
+    if (onAddReaction) {
+      onAddReaction(postId, emoji);
+      setShowReactionPicker(null);
+    }
+  };
+
+  const getReactionCounts = (postId) => {
+    const reactionKey = `${postId}_reactions`;
+    const postReactions = reactions[reactionKey] || {};
+    const counts = {};
+
+    Object.values(postReactions).forEach(userReactions => {
+      userReactions.forEach(emoji => {
+        counts[emoji] = (counts[emoji] || 0) + 1;
+      });
+    });
+
+    return counts;
+  };
+
+  const getUserReactions = (postId) => {
+    const reactionKey = `${postId}_reactions`;
+    const postReactions = reactions[reactionKey] || {};
+    return postReactions[currentUser?.id] || [];
+  };
+
+  const achievementPosts = feed.filter(p => p.type === 'achievement' || p.isAuto);
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
-        color: THEME.text,
-        fontFamily: 'var(--font-display)',
-      }}>
-        Team Feed
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{
+          margin: 0,
+          fontSize: '24px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          Team Feed
+          {unreadCount > 0 && (
+            <span style={{
+              background: THEME.danger,
+              color: THEME.white,
+              borderRadius: '50%',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              fontWeight: '700',
+            }}>
+              {unreadCount}
+            </span>
+          )}
+        </h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => setViewMode(viewMode === 'feed' ? 'achievements' : 'feed')}
+            style={{
+              padding: '8px 16px',
+              background: viewMode === 'achievements' ? THEME.gradients.primary : THEME.secondary,
+              border: 'none',
+              borderRadius: '8px',
+              color: viewMode === 'achievements' ? THEME.white : THEME.text,
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {viewMode === 'achievements' ? '🏆 Achievements' : '📰 Feed'}
+          </button>
+          {unreadCount > 0 && (
+            <button
+              onClick={onMarkAsRead}
+              style={{
+                padding: '8px 16px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              Mark Read
+            </button>
+          )}
+        </div>
+      </div>
       
       <div style={{
         background: THEME.white,
