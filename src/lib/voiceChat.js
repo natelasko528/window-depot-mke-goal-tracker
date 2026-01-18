@@ -122,14 +122,104 @@ const processAudioQueue = async () => {
 };
 
 /**
+ * Validation functions
+ */
+const validateAPIKey = (apiKey) => {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+    throw new Error('Invalid API key format. API key must be at least 10 characters.');
+  }
+  return apiKey.trim();
+};
+
+// Fallback model list (try these in order if primary fails)
+const FALLBACK_MODELS = [
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-2.0-flash-live-001'
+];
+
+const validateModel = (model) => {
+  if (!model || typeof model !== 'string') {
+    return FALLBACK_MODELS[0];
+  }
+  // Model should be a valid native audio model
+  if (FALLBACK_MODELS.includes(model)) {
+    return model;
+  }
+  console.warn(`Model "${model}" not in known valid list, using default`);
+  return FALLBACK_MODELS[0];
+};
+
+/**
+ * Get fallback models for error messages
+ */
+const getFallbackModelSuggestions = (currentModel) => {
+  return FALLBACK_MODELS.filter(m => m !== currentModel);
+};
+
+const validateVoice = (voice) => {
+  const validVoices = VOICE_OPTIONS.map(v => v.id);
+  if (validVoices.includes(voice)) {
+    return voice;
+  }
+  console.warn(`Voice "${voice}" not in valid list, using "Puck"`);
+  return 'Puck';
+};
+
+const validateSystemInstruction = (instruction) => {
+  if (!instruction || typeof instruction !== 'string') {
+    throw new Error('System instruction must be a non-empty string');
+  }
+  // Max length check (conservative limit)
+  const MAX_LENGTH = 10000;
+  if (instruction.length > MAX_LENGTH) {
+    throw new Error(`System instruction too long (max ${MAX_LENGTH} characters)`);
+  }
+  // Check for valid UTF-8 encoding
+  try {
+    const encoder = new TextEncoder();
+    encoder.encode(instruction);
+  } catch (error) {
+    throw new Error('System instruction contains invalid characters');
+  }
+  return instruction;
+};
+
+const validateSetupMessage = (setupMessage) => {
+  // Required fields validation
+  if (!setupMessage.setup) {
+    throw new Error('Setup message must contain "setup" field');
+  }
+  if (!setupMessage.setup.model) {
+    throw new Error('Setup message must contain "model" field');
+  }
+  if (!setupMessage.setup.generationConfig) {
+    throw new Error('Setup message must contain "generationConfig" field');
+  }
+  if (!setupMessage.setup.generationConfig.responseModalities) {
+    throw new Error('Setup message must contain "responseModalities" field');
+  }
+  if (!Array.isArray(setupMessage.setup.generationConfig.responseModalities)) {
+    throw new Error('"responseModalities" must be an array');
+  }
+  if (setupMessage.setup.generationConfig.responseModalities.length === 0) {
+    throw new Error('"responseModalities" array cannot be empty');
+  }
+  // Model format validation (should start with "models/")
+  if (!setupMessage.setup.model.startsWith('models/')) {
+    throw new Error('Model must be in format "models/{model-name}"');
+  }
+  return true;
+};
+
+/**
  * Voice chat session class
  */
 class VoiceChatSession {
   constructor(apiKey, options = {}) {
-    this.apiKey = apiKey;
-    this.model = options.model || currentModel;
-    this.voice = options.voice || 'Puck';
-    this.systemInstruction = options.systemInstruction || VOICE_SYSTEM_INSTRUCTION;
+    this.apiKey = validateAPIKey(apiKey);
+    this.model = validateModel(options.model || currentModel);
+    this.voice = validateVoice(options.voice || 'Puck');
+    this.systemInstruction = validateSystemInstruction(options.systemInstruction || VOICE_SYSTEM_INSTRUCTION);
     this.onStatusChange = options.onStatusChange || (() => {});
     this.onTranscript = options.onTranscript || (() => {});
     this.onError = options.onError || (() => {});
@@ -138,6 +228,9 @@ class VoiceChatSession {
     this.isListening = false;
     this.analyser = null;
     this.audioLevelInterval = null;
+    this.setupPromiseResolve = null;
+    this.setupPromiseReject = null;
+    this.setupComplete = false;
   }
 
   /**
@@ -146,11 +239,13 @@ class VoiceChatSession {
   async connect() {
     return new Promise((resolve, reject) => {
       try {
-        // Validate and fix model name - ensure we use the correct native audio model
-        const validModel = this.model === 'gemini-2.5-flash-native-audio-preview-12-2025' 
-          ? this.model 
-          : 'gemini-2.5-flash-native-audio-preview-12-2025';
-        
+        // Store promise handlers for async flow control
+        this.setupPromiseResolve = resolve;
+        this.setupPromiseReject = reject;
+        this.setupComplete = false;
+
+        // Validate model name - ensure we use a valid native audio model
+        const validModel = validateModel(this.model);
         if (this.model !== validModel) {
           console.warn(`Invalid voice model "${this.model}", using "${validModel}"`);
           this.model = validModel;
@@ -162,17 +257,33 @@ class VoiceChatSession {
 
         webSocket = new WebSocket(wsUrl);
 
+        // Set timeout for setup completion (10 seconds)
+        const setupTimeout = setTimeout(() => {
+          if (!this.setupComplete) {
+            const errorMsg = 'Setup timeout: Did not receive setupComplete within 10 seconds';
+            console.error(errorMsg);
+            if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+              webSocket.close();
+            }
+            if (this.setupPromiseReject) {
+              this.setupPromiseReject(new Error(errorMsg));
+              this.setupPromiseReject = null;
+              this.setupPromiseResolve = null;
+            }
+          }
+        }, 10000);
+
         webSocket.onopen = () => {
           console.log('WebSocket connected');
           this.isConnected = true;
           this.onStatusChange('connected');
 
-          // Send setup message - validate structure before sending
+          // Send setup message - using camelCase per Gemini Live API WebSocket spec
           const setupMessage = {
             setup: {
               model: `models/${validModel}`,
               generationConfig: {
-                responseModalities: ['AUDIO'],
+                responseModalities: ['AUDIO'], // camelCase for WebSocket JSON messages
                 speechConfig: {
                   voiceConfig: {
                     prebuiltVoiceConfig: {
@@ -187,22 +298,26 @@ class VoiceChatSession {
             },
           };
 
-          // Validate setup message structure
+          // Validate setup message structure before sending
           try {
+            validateSetupMessage(setupMessage);
             const jsonString = JSON.stringify(setupMessage);
             console.log('Sending setup message with model:', validModel);
             console.log('Setup message structure:', JSON.stringify(setupMessage, null, 2));
             
-            // Validate JSON is valid UTF-8
-            if (!/^[\x20-\x7E\s]*$/.test(this.systemInstruction)) {
-              console.warn('System instruction contains non-ASCII characters');
-            }
-            
             webSocket.send(jsonString);
-            resolve();
+            // DO NOT resolve here - wait for setupComplete response
           } catch (error) {
-            console.error('Failed to stringify or send setup message:', error);
-            reject(new Error(`Failed to prepare setup message: ${error.message}`));
+            clearTimeout(setupTimeout);
+            console.error('Failed to validate or send setup message:', error);
+            if (this.setupPromiseReject) {
+              this.setupPromiseReject(new Error(`Failed to prepare setup message: ${error.message}`));
+              this.setupPromiseReject = null;
+              this.setupPromiseResolve = null;
+            }
+            if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+              webSocket.close();
+            }
           }
         };
 
@@ -241,63 +356,91 @@ class VoiceChatSession {
         };
 
         webSocket.onerror = (error) => {
+          clearTimeout(setupTimeout);
           console.error('WebSocket error:', error);
-          this.onError('Connection error. Please check your API key and try again.');
-          reject(error);
+          const errorMessage = 'Connection error. Please check your API key and try again.';
+          this.onError(errorMessage);
+          if (this.setupPromiseReject && !this.setupComplete) {
+            this.setupPromiseReject(new Error(errorMessage));
+            this.setupPromiseReject = null;
+            this.setupPromiseResolve = null;
+          }
         };
 
         webSocket.onclose = (event) => {
+          clearTimeout(setupTimeout);
           console.log('WebSocket closed:', event.code, event.reason, {
             wasClean: event.wasClean,
             code: event.code,
             reason: event.reason,
+            setupComplete: this.setupComplete,
           });
           this.isConnected = false;
           this.onStatusChange('disconnected');
 
-          if (event.code !== 1000) {
+          // If setup didn't complete and connection closed, reject the promise
+          if (!this.setupComplete && this.setupPromiseReject) {
             let errorMessage = `Connection closed: ${event.reason || `Code ${event.code}`}`;
             
             // Provide helpful error messages for common WebSocket close codes
             // 1007 = Invalid payload data (malformed JSON, wrong encoding)
             if (event.code === 1007) {
-              errorMessage = `Invalid request format (code 1007). The setup message structure may be incorrect. Please check your API configuration.`;
-              console.error('1007 Error - Possible causes:', {
+              errorMessage = 'Invalid request format. Please check your API key and model configuration in Settings.';
+              console.error('1007 Error - Invalid argument. Possible causes:', {
                 model: this.model,
                 voice: this.voice,
                 systemInstructionLength: this.systemInstruction?.length,
                 apiKeyPresent: !!this.apiKey,
+                apiKeyLength: this.apiKey?.length,
               });
             } 
             // 1008 = Policy violation (model not supported, permission denied)
             else if (event.code === 1008) {
               if (event.reason && event.reason.includes('not found')) {
-                errorMessage = `Model "${this.model}" is not found or not supported for voice chat.`;
+                const fallbacks = getFallbackModelSuggestions(this.model);
+                const fallbackHint = fallbacks.length > 0 
+                  ? ` Try using one of these models instead: ${fallbacks.join(', ')}.` 
+                  : '';
+                errorMessage = `Model "${this.model}" is not found or not supported for voice chat.${fallbackHint} Please check available models in Settings.`;
               } else {
-                errorMessage = `Request rejected (code 1008). The voice model may not be supported or API key lacks permissions.`;
+                errorMessage = 'Model not supported or API key lacks permissions. Please verify your API key has access to voice chat features.';
               }
             }
             // 1001 = Going away (server shutdown/restart)
             else if (event.code === 1001) {
-              errorMessage = `Connection closed by server. Please try again.`;
+              errorMessage = 'Connection closed by server. Please try again.';
             }
             // 1006 = Abnormal closure (no close frame received)
             else if (event.code === 1006) {
-              errorMessage = `Connection lost. Check your internet connection and try again.`;
+              errorMessage = 'Connection lost. Check your internet connection and try again.';
             }
             // Reason-based messages
             else if (event.reason) {
-              if (event.reason.includes('is not found')) {
-                errorMessage = `Model "${this.model}" is not available for voice chat.`;
+              if (event.reason.includes('is not found') || event.reason.includes('NOT_FOUND')) {
+                const fallbacks = getFallbackModelSuggestions(this.model);
+                const fallbackHint = fallbacks.length > 0 
+                  ? ` Try using one of these models instead: ${fallbacks.join(', ')}.` 
+                  : '';
+                errorMessage = `Model "${this.model}" is not available for voice chat.${fallbackHint} Please check available models in Settings.`;
               } else if (event.reason.includes('invalid argument') || event.reason.includes('INVALID_ARGUMENT')) {
-                errorMessage = `Invalid request parameters. Please check your Settings configuration.`;
+                errorMessage = 'Invalid request parameters. Please check your Settings configuration (API key, model, and voice settings).';
               } else if (event.reason.includes('permission') || event.reason.includes('PERMISSION_DENIED')) {
-                errorMessage = `API key does not have permission for voice chat.`;
+                errorMessage = 'API key does not have permission for voice chat. Please verify your API key permissions.';
               } else if (event.reason.includes('quota') || event.reason.includes('RESOURCE_EXHAUSTED')) {
-                errorMessage = `API quota exceeded. Please try again later.`;
+                errorMessage = 'API quota exceeded. Please try again later.';
               }
             }
             
+            this.onError(errorMessage);
+            this.setupPromiseReject(new Error(errorMessage));
+            this.setupPromiseReject = null;
+            this.setupPromiseResolve = null;
+          } else if (event.code !== 1000 && event.code !== 1001) {
+            // Connection closed after setup - this is likely an error
+            let errorMessage = `Connection closed: ${event.reason || `Code ${event.code}`}`;
+            if (event.reason) {
+              errorMessage = event.reason;
+            }
             this.onError(errorMessage);
           }
         };
@@ -314,7 +457,7 @@ class VoiceChatSession {
     // Handle error responses from server
     if (response.error) {
       const error = response.error;
-      console.error('Server error response:', error);
+      console.error('Server error response:', JSON.stringify(error, null, 2));
       
       let errorMessage = 'Server error';
       if (error.message) {
@@ -323,25 +466,53 @@ class VoiceChatSession {
         errorMessage = `Error ${error.code}: ${error.message || 'Unknown error'}`;
       }
       
-      // Provide context-specific error messages
-      if (error.message?.includes('invalid argument') || error.message?.includes('INVALID_ARGUMENT')) {
-        errorMessage = 'Invalid request parameters. Please check your Settings configuration.';
-      } else if (error.message?.includes('model') && error.message?.includes('not found')) {
-        errorMessage = `Model "${this.model}" is not available for voice chat.`;
-      } else if (error.message?.includes('permission') || error.message?.includes('PERMISSION_DENIED')) {
-        errorMessage = 'API key does not have permission for voice chat.';
-      } else if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+      // Provide context-specific error messages based on error details
+      if (error.code === 'INVALID_ARGUMENT' || error.message?.includes('invalid argument') || error.message?.includes('INVALID_ARGUMENT')) {
+        // Try to extract which field is invalid from error details
+        let fieldHint = '';
+        if (error.message) {
+          // Look for field references in error message
+          const fieldMatch = error.message.match(/field\s+["']?(\w+)["']?/i);
+          if (fieldMatch) {
+            fieldHint = ` (field: ${fieldMatch[1]})`;
+          }
+        }
+        errorMessage = `Invalid request parameters${fieldHint}. Please check your Settings configuration (API key, model, and voice settings).`;
+      } else if (error.code === 'NOT_FOUND' || (error.message?.includes('model') && error.message?.includes('not found'))) {
+        const fallbacks = getFallbackModelSuggestions(this.model);
+        const fallbackHint = fallbacks.length > 0 
+          ? ` Try using one of these models instead: ${fallbacks.join(', ')}.` 
+          : '';
+        errorMessage = `Model "${this.model}" is not available for voice chat.${fallbackHint} Please check available models in Settings.`;
+      } else if (error.code === 'PERMISSION_DENIED' || error.message?.includes('permission') || error.message?.includes('PERMISSION_DENIED')) {
+        errorMessage = 'API key does not have permission for voice chat. Please verify your API key permissions.';
+      } else if (error.code === 'RESOURCE_EXHAUSTED' || error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
         errorMessage = 'API quota exceeded. Please try again later.';
+      }
+      
+      // If setup hasn't completed and we get an error, reject the promise
+      if (!this.setupComplete && this.setupPromiseReject) {
+        this.setupPromiseReject(new Error(errorMessage));
+        this.setupPromiseReject = null;
+        this.setupPromiseResolve = null;
       }
       
       this.onError(errorMessage);
       return;
     }
 
-    // Handle setup complete
+    // Handle setup complete - this is when we resolve the promise
     if (response.setupComplete) {
       console.log('Setup complete - voice chat ready');
+      this.setupComplete = true;
       this.onStatusChange('ready');
+      
+      // Resolve the promise now that setup is complete
+      if (this.setupPromiseResolve) {
+        this.setupPromiseResolve();
+        this.setupPromiseResolve = null;
+        this.setupPromiseReject = null;
+      }
       return;
     }
 
