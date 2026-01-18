@@ -116,6 +116,34 @@ const DURATIONS = [
   { value: 240, label: '4 hours' },
 ];
 
+const MOTIVATIONAL_QUOTES = [
+  "Success is the sum of small efforts repeated day in and day out.",
+  "The harder you work for something, the greater you'll feel when you achieve it.",
+  "Don't watch the clock; do what it does. Keep going.",
+  "Believe in yourself and all that you are.",
+  "Great things never come from comfort zones.",
+  "The only way to do great work is to love what you do.",
+  "Success doesn't just find you. You have to go out and get it.",
+  "Dream it. Wish it. Do it.",
+  "Little things make big days.",
+  "It's going to be hard, but hard does not mean impossible.",
+  "Don't stop when you're tired. Stop when you're done.",
+  "Wake up with determination. Go to bed with satisfaction.",
+  "Do something today that your future self will thank you for.",
+  "The key to success is to focus on goals, not obstacles.",
+  "You don't have to be great to start, but you have to start to be great.",
+  "Your limitation—it's only your imagination.",
+  "Sometimes later becomes never. Do it now.",
+  "Push yourself, because no one else is going to do it for you.",
+  "Make each day your masterpiece.",
+  "The best time to plant a tree was 20 years ago. The second best time is now.",
+  "Opportunities don't happen. You create them.",
+  "Success is what comes after you stop making excuses.",
+  "Winners make a habit of manufacturing their own positive expectations.",
+  "The secret of getting ahead is getting started.",
+  "Go the extra mile. It's never crowded there.",
+];
+
 // ========================================
 // VALIDATION UTILITIES
 // ========================================
@@ -615,6 +643,34 @@ export default function WindowDepotTracker() {
     createSkipLink();
 
     const handleKeyDown = (e) => {
+      // Quick increment shortcuts (when on Dashboard, no modifiers)
+      if (activeView === 'dashboard' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const target = e.target;
+        // Don't trigger if user is typing in an input
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+        switch (e.key.toLowerCase()) {
+          case 'r':
+            e.preventDefault();
+            handleIncrement('reviews');
+            showToast('Review added! (Press R to add more)', 'success');
+            break;
+          case 'd':
+            e.preventDefault();
+            handleIncrement('demos');
+            showToast('Demo added! (Press D to add more)', 'success');
+            break;
+          case 'c':
+            e.preventDefault();
+            handleIncrement('callbacks');
+            showToast('Callback added! (Press C to add more)', 'success');
+            break;
+          default:
+            break;
+        }
+      }
+
+      // Navigation shortcuts (Ctrl/Cmd + key)
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         switch (e.key.toLowerCase()) {
           case 'd':
@@ -655,7 +711,7 @@ export default function WindowDepotTracker() {
       window.removeEventListener('keydown', handleKeyDown);
       accessibilityAnnouncer.cleanup();
     };
-  }, [showOnboarding]);
+  }, [showOnboarding, activeView, handleIncrement, showToast]);
 
   // ========================================
   // REAL-TIME SUBSCRIPTIONS
@@ -2946,6 +3002,18 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
     return insights.length > 0 ? insights : ["Keep pushing towards your goals!"];
   }, [currentUser, todayStats, weekStats, last7Days, calculateStreaks]);
 
+  // ========================================
+  // DAILY MOTIVATIONAL QUOTE
+  // ========================================
+
+  const dailyQuote = useMemo(() => {
+    // Use today's date to consistently pick the same quote all day
+    const today = new Date();
+    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
+    const quoteIndex = dayOfYear % MOTIVATIONAL_QUOTES.length;
+    return MOTIVATIONAL_QUOTES[quoteIndex];
+  }, []);
+
   const handleIncrement = (categoryId) => {
     onIncrement(categoryId);
     addToHistory({ categoryId, type: 'increment' });
@@ -2966,7 +3034,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
   return (
     <div>
       <h2 style={{
-        margin: '0 0 20px 0',
+        margin: '0 0 16px 0',
         fontSize: '24px',
         fontWeight: '700',
         color: THEME.text,
@@ -2974,6 +3042,46 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       }}>
         Today's Progress
       </h2>
+
+      {/* Daily Motivational Quote */}
+      <div style={{
+        background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+        color: THEME.white,
+        textAlign: 'center',
+      }}>
+        <div style={{
+          fontSize: '11px',
+          fontWeight: '600',
+          opacity: 0.9,
+          marginBottom: '6px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+        }}>
+          Daily Motivation
+        </div>
+        <div style={{
+          fontSize: '15px',
+          fontWeight: '500',
+          fontStyle: 'italic',
+          opacity: 0.95,
+          lineHeight: '1.5',
+          fontFamily: 'var(--font-body)',
+        }}>
+          "{dailyQuote}"
+        </div>
+        <div style={{
+          fontSize: '11px',
+          marginTop: '8px',
+          opacity: 0.75,
+          fontFamily: 'var(--font-body)',
+        }}>
+          Press R/D/C for quick add • {Object.keys(CATEGORIES).map(k => CATEGORIES[k].name[0]).join('/')}
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
         {CATEGORIES.map((category, index) => {
