@@ -3654,6 +3654,86 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
     };
   }, [messages, currentSessionId, currentUser, saveMessages]);
 
+  // Delete a specific chat session
+  const deleteSession = useCallback(async (sessionId) => {
+    if (!currentUser || !sessionId) return;
+    
+    if (!window.confirm('Delete this conversation? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const userId = currentUser.id;
+      
+      // Delete messages for this session from IndexedDB
+      await storage.delete(`chatMessages_${userId}_${sessionId}`);
+      
+      // Remove session from sessions list
+      const sessions = await storage.get(`chatSessions_${userId}`, []);
+      const updatedSessions = sessions.filter(s => s.id !== sessionId);
+      await storage.set(`chatSessions_${userId}`, updatedSessions);
+      
+      setChatSessions(updatedSessions);
+      
+      // If deleted session was current, switch to another or create new
+      if (currentSessionId === sessionId) {
+        if (updatedSessions.length > 0) {
+          // Load the first available session
+          const firstSession = updatedSessions[0];
+          const sessionMessages = await storage.get(`chatMessages_${userId}_${firstSession.id}`, []);
+          setMessages(sessionMessages || []);
+          setCurrentSessionId(firstSession.id);
+        } else {
+          // No sessions left, create a new one
+          await createNewSession(userId);
+        }
+      }
+      
+      // Show success message if we have a way to show toasts
+      // Note: showToast might not be available in Chatbot component scope
+      console.log('Session deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      alert('Failed to delete conversation. Please try again.');
+    }
+  }, [currentUser, currentSessionId, createNewSession]);
+
+  // Delete all conversations for current user
+  const deleteAllConversations = useCallback(async () => {
+    if (!currentUser) return;
+    
+    if (!window.confirm('Delete ALL conversation history? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const userId = currentUser.id;
+      
+      // Get all sessions to delete their messages
+      const sessions = await storage.get(`chatSessions_${userId}`, []);
+      
+      // Delete all message storage keys
+      for (const session of sessions) {
+        await storage.delete(`chatMessages_${userId}_${session.id}`);
+      }
+      
+      // Delete sessions list
+      await storage.delete(`chatSessions_${userId}`);
+      
+      // Clear state
+      setChatSessions([]);
+      setCurrentSessionId(null);
+      
+      // Create a new session
+      await createNewSession(userId);
+      
+      console.log('All conversations deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete all conversations:', error);
+      alert('Failed to delete conversation history. Please try again.');
+    }
+  }, [currentUser, createNewSession]);
+
   // Save model preference
   // eslint-disable-next-line no-unused-vars
   const saveModelPreference = async (model) => {
@@ -4111,11 +4191,88 @@ Keep responses conversational and concise for voice interaction.`,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = THEME.primaryDark;
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = THEME.primary;
+                e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
               <Plus size={16} />
               New Chat
             </button>
+            {currentSessionId && (
+              <button
+                onClick={() => deleteSession(currentSessionId)}
+                style={{
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: `1px solid ${THEME.danger}`,
+                  borderRadius: '6px',
+                  color: THEME.danger,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = THEME.danger;
+                  e.currentTarget.style.color = THEME.white;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = THEME.danger;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+                title="Delete this conversation"
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            )}
+            {chatSessions.length > 1 && (
+              <button
+                onClick={deleteAllConversations}
+                style={{
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: `1px solid ${THEME.textLight}`,
+                  borderRadius: '6px',
+                  color: THEME.textLight,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = THEME.danger;
+                  e.currentTarget.style.borderColor = THEME.danger;
+                  e.currentTarget.style.color = THEME.white;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = THEME.textLight;
+                  e.currentTarget.style.color = THEME.textLight;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+                title="Delete all conversations"
+              >
+                <Trash2 size={16} />
+                Clear All
+              </button>
+            )}
           </div>
         )}
         

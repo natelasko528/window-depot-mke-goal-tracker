@@ -431,8 +431,6 @@ class VoiceChatSession {
                 ...(this.generationConfig.topK !== undefined && { topK: this.generationConfig.topK }),
                 ...(this.generationConfig.maxOutputTokens !== undefined && { maxOutputTokens: this.generationConfig.maxOutputTokens }),
                 ...(this.generationConfig.candidateCount !== undefined && { candidateCount: this.generationConfig.candidateCount }),
-                // Enable output audio transcription - transcripts appear in response.serverContent.outputTranscription.text
-                outputAudioTranscription: {},
               },
               realtimeInputConfig: {
                 automaticActivityDetection: {
@@ -443,6 +441,9 @@ class VoiceChatSession {
                   prefixPaddingMs: this.voiceChatSettings.prefixPaddingMs || 100,
                 },
               },
+              // Enable output audio transcription - transcripts appear in response.serverContent.outputTranscription.text
+              // Must be at top level of setup, not inside generationConfig
+              outputAudioTranscription: {},
               inputAudioTranscription: {}, // Empty object enables transcription, language inferred from speechConfig
               systemInstruction: {
                 parts: [{ text: this.systemInstruction }],
