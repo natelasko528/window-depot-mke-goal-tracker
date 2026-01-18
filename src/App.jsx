@@ -3554,7 +3554,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
   }, [currentUser?.id]);
 
   // Helper function to create new chat session
-  const createNewSession = async (userId) => {
+  const createNewSession = useCallback(async (userId) => {
     const sessionId = `session_${Date.now()}`;
     const newSession = {
       id: sessionId,
@@ -3583,7 +3583,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
     setCurrentSessionId(sessionId);
     setChatSessions(updatedSessions);
     setMessages([welcomeMessage]);
-  };
+  }, []); // React state setters are stable, isAIConfigured is imported function
 
   // Helper function to save messages to storage
   const saveMessages = useCallback(async (messagesToSave, sessionId, userId) => {
