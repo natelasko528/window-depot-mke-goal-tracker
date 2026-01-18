@@ -2038,6 +2038,7 @@ export default function WindowDepotTracker() {
             weekStats={weekStats}
             onIncrement={handleIncrement}
             appSettings={appSettings}
+            setAppSettings={setAppSettings}
           />
         )}
 
@@ -3466,7 +3467,7 @@ const formatInlineMarkdown = (text) => {
   return parts.length > 0 ? parts : text;
 };
 
-function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings }) {
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings }) {
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -4435,7 +4436,167 @@ Keep responses conversational and concise for voice interaction.`,
             )}
           </div>
         )}
+
+        {/* Voice Chat Controls - Active Mode (top position) */}
+        {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '20px',
+            padding: '20px 24px',
+            marginBottom: '20px',
+            background: THEME.secondary,
+            borderRadius: '12px',
+          }}>
+            {/* Audio Level Indicator */}
+            <div style={{
+              width: '100%',
+              height: '6px',
+              background: THEME.white,
+              borderRadius: '3px',
+              overflow: 'hidden',
+              position: 'relative',
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.max(audioLevel * 100, 2)}%`,
+                background: voiceStatus === 'listening' 
+                  ? `linear-gradient(90deg, ${THEME.success} 0%, #28a745 100%)` 
+                  : `linear-gradient(90deg, ${THEME.primary} 0%, #0056b3 100%)`,
+                borderRadius: '3px',
+                transition: 'width 0.1s ease-out, background 0.3s ease',
+                boxShadow: voiceStatus === 'listening' ? '0 0 8px rgba(40, 167, 69, 0.4)' : 'none',
+              }} />
+            </div>
+
+            {/* Microphone Button */}
+            <button
+              onClick={handleToggleListening}
+              disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
+              onMouseEnter={(e) => {
+                if (!e.currentTarget.disabled) {
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              style={{
+                width: '80px',
+                height: '80px',
+                borderRadius: '50%',
+                background: voiceStatus === 'listening' 
+                  ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)` 
+                  : `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
+                border: 'none',
+                cursor: (voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: voiceStatus === 'listening'
+                  ? `0 0 0 ${8 + audioLevel * 20}px rgba(220,53,69,0.25), 0 6px 20px rgba(220,53,69,0.3)`
+                  : '0 6px 20px rgba(0, 123, 255, 0.25)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: 'scale(1)',
+                position: 'relative',
+              }}
+            >
+              {voiceStatus === 'listening' ? (
+                <MicOff size={32} color={THEME.white} />
+              ) : (
+                <Mic size={32} color={THEME.white} />
+              )}
+            </button>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleEndVoiceChat}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = THEME.border;
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = THEME.white;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+                style={{
+                  padding: '10px 24px',
+                  background: THEME.white,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  color: THEME.text,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+                }}
+              >
+                End Voice Chat
+              </button>
+            </div>
+          </div>
+        )}
         
+        {/* Centered Start Voice Chat Button - Disconnected State (above messages) */}
+        {chatMode === 'voice' && voiceStatus === 'disconnected' && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '32px 24px',
+            marginBottom: '16px',
+            background: THEME.secondary,
+            borderRadius: '12px',
+            gap: '16px',
+          }}>
+            <button
+              onClick={handleStartVoiceChat}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              style={{
+                width: '100px',
+                height: '100px',
+                borderRadius: '50%',
+                background: `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 8px 24px rgba(0, 123, 255, 0.35)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: 'scale(1)',
+                position: 'relative',
+              }}
+            >
+              <Mic size={40} color={THEME.white} />
+            </button>
+            <div style={{
+              fontSize: '16px',
+              color: THEME.text,
+              fontWeight: '600',
+              textAlign: 'center',
+            }}>
+              Start Voice Chat
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: THEME.textLight,
+              textAlign: 'center',
+              maxWidth: '300px',
+            }}>
+              Tap the microphone to begin a voice conversation with your AI coach
+            </div>
+          </div>
+        )}
+
         {/* Messages */}
         <div style={{
           flex: 1,
@@ -4630,104 +4791,6 @@ Keep responses conversational and concise for voice interaction.`,
               </div>
             )}
           </>
-        )}
-        {/* Voice Chat Controls */}
-        {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '20px',
-            padding: '24px',
-          }}>
-            {/* Audio Level Indicator */}
-            <div style={{
-              width: '100%',
-              height: '6px',
-              background: THEME.secondary,
-              borderRadius: '3px',
-              overflow: 'hidden',
-              position: 'relative',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${Math.max(audioLevel * 100, 2)}%`,
-                background: voiceStatus === 'listening' 
-                  ? `linear-gradient(90deg, ${THEME.success} 0%, #28a745 100%)` 
-                  : `linear-gradient(90deg, ${THEME.primary} 0%, #0056b3 100%)`,
-                borderRadius: '3px',
-                transition: 'width 0.1s ease-out, background 0.3s ease',
-                boxShadow: voiceStatus === 'listening' ? '0 0 8px rgba(40, 167, 69, 0.4)' : 'none',
-              }} />
-            </div>
-
-            {/* Microphone Button */}
-            <button
-              onClick={handleToggleListening}
-              disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
-              onMouseEnter={(e) => {
-                if (!e.currentTarget.disabled) {
-                  e.currentTarget.style.transform = 'scale(1.05)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-              }}
-              style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
-                background: voiceStatus === 'listening' 
-                  ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)` 
-                  : `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
-                border: 'none',
-                cursor: (voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: voiceStatus === 'listening'
-                  ? `0 0 0 ${8 + audioLevel * 20}px rgba(220,53,69,0.25), 0 6px 20px rgba(220,53,69,0.3)`
-                  : '0 6px 20px rgba(0, 123, 255, 0.25)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: 'scale(1)',
-                position: 'relative',
-              }}
-            >
-              {voiceStatus === 'listening' ? (
-                <MicOff size={32} color={THEME.white} />
-              ) : (
-                <Mic size={32} color={THEME.white} />
-              )}
-            </button>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={handleEndVoiceChat}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = THEME.border;
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = THEME.secondary;
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-                style={{
-                  padding: '10px 24px',
-                  background: THEME.secondary,
-                  border: `1px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  color: THEME.text,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-                }}
-              >
-                End Voice Chat
-              </button>
-            </div>
-          </div>
         )}
       </div>
 
