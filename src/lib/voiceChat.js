@@ -741,7 +741,7 @@ class VoiceChatSession {
       }
 
       // Handle inputAudioTranscription - per official API docs, appears in content.inputTranscription.text
-      // Buffer fragments until turnComplete to group words together
+      // Accumulate fragments and send incremental updates for real-time word-by-word display
       if (content.inputTranscription?.text) {
         const transcript = content.inputTranscription.text.trim();
         if (transcript) {
@@ -752,11 +752,14 @@ class VoiceChatSession {
           } else {
             this.inputTranscriptBuffer = transcript;
           }
+          // Send incremental update with full accumulated buffer for real-time display
+          // The UI will update the same message bubble as words come in
+          this.onTranscript(this.inputTranscriptBuffer, 'user', true); // true = isStreaming
         }
       }
 
       // Handle outputAudioTranscription - per official API docs, appears in content.outputTranscription.text
-      // Buffer fragments until turnComplete to group words together
+      // Accumulate fragments and send incremental updates for real-time word-by-word display
       if (content.outputTranscription?.text) {
         const transcript = content.outputTranscription.text.trim();
         if (transcript) {
@@ -767,6 +770,9 @@ class VoiceChatSession {
           } else {
             this.outputTranscriptBuffer = transcript;
           }
+          // Send incremental update with full accumulated buffer for real-time display
+          // The UI will update the same message bubble as words come in
+          this.onTranscript(this.outputTranscriptBuffer, 'assistant', true); // true = isStreaming
         }
       }
 
@@ -849,21 +855,23 @@ class VoiceChatSession {
         }
       }
 
-      // Check if turn is complete - flush transcript buffers
+      // Check if turn is complete - finalize streaming transcripts
       if (content.turnComplete) {
-        // Flush output transcript (AI speech) if buffer has content
+        // Finalize output transcript (AI speech) if buffer has content
+        // Send final version without isStreaming flag to mark it as complete
         if (this.outputTranscriptBuffer) {
           const completeTranscript = this.outputTranscriptBuffer.trim();
-          console.log('Turn complete - flushing output transcript:', completeTranscript);
-          this.onTranscript(completeTranscript, 'assistant');
+          console.log('Turn complete - finalizing output transcript:', completeTranscript);
+          this.onTranscript(completeTranscript, 'assistant', false); // false = not streaming (final)
           this.outputTranscriptBuffer = '';
         }
         
-        // Flush input transcript (user speech) if buffer has content
+        // Finalize input transcript (user speech) if buffer has content
+        // Send final version without isStreaming flag to mark it as complete
         if (this.inputTranscriptBuffer) {
           const completeTranscript = this.inputTranscriptBuffer.trim();
-          console.log('Turn complete - flushing input transcript:', completeTranscript);
-          this.onTranscript(completeTranscript, 'user');
+          console.log('Turn complete - finalizing input transcript:', completeTranscript);
+          this.onTranscript(completeTranscript, 'user', false); // false = not streaming (final)
           this.inputTranscriptBuffer = '';
         }
         

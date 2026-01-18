@@ -3901,15 +3901,47 @@ Keep responses conversational and concise for voice interaction.`,
         onStatusChange: (status) => {
           setVoiceStatus(status);
         },
-        onTranscript: (text, role) => {
-          const newMessage = {
-            id: `${role}-${Date.now()}`,
-            role: role === 'assistant' ? 'assistant' : 'user',
-            content: text,
-            timestamp: Date.now(),
-            isVoice: true,
-          };
-          setMessages(prev => [...prev, newMessage]);
+        onTranscript: (text, role, isStreaming = false) => {
+          setMessages(prev => {
+            const messageRole = role === 'assistant' ? 'assistant' : 'user';
+            
+            // If streaming and last message is from same role and also streaming, update it
+            if (isStreaming && prev.length > 0) {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage.role === messageRole && lastMessage.isStreaming && lastMessage.isVoice) {
+                // Update existing streaming message
+                return prev.map((msg, idx) => 
+                  idx === prev.length - 1 
+                    ? { ...msg, content: text, timestamp: Date.now() }
+                    : msg
+                );
+              }
+            }
+            
+            // Create new message (either first message or final/non-streaming update)
+            const newMessage = {
+              id: isStreaming ? `streaming-${messageRole}-${Date.now()}` : `${messageRole}-${Date.now()}`,
+              role: messageRole,
+              content: text,
+              timestamp: Date.now(),
+              isVoice: true,
+              isStreaming: isStreaming, // Track if message is still being streamed
+            };
+            
+            // If not streaming and last message was streaming from same role, replace it
+            if (!isStreaming && prev.length > 0) {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage.role === messageRole && lastMessage.isStreaming && lastMessage.isVoice) {
+                return prev.map((msg, idx) => 
+                  idx === prev.length - 1 
+                    ? { ...newMessage, id: msg.id } // Keep same ID to avoid flicker
+                    : msg
+                );
+              }
+            }
+            
+            return [...prev, newMessage];
+          });
         },
         onError: (error) => {
           setVoiceError(error);
