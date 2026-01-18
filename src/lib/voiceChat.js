@@ -309,6 +309,15 @@ const validateSetupMessage = (setupMessage) => {
   if (setupMessage.setup.generationConfig.responseModalities.length === 0) {
     throw new Error('"responseModalities" array cannot be empty');
   }
+  // CRITICAL: Only ONE response modality is allowed per API spec
+  if (setupMessage.setup.generationConfig.responseModalities.length > 1) {
+    throw new Error('"responseModalities" must contain exactly ONE value ("AUDIO" or "TEXT"), not multiple. Use outputAudioTranscription/inputAudioTranscription for transcripts with AUDIO modality.');
+  }
+  // Validate that the value is valid
+  const modality = setupMessage.setup.generationConfig.responseModalities[0];
+  if (modality !== 'AUDIO' && modality !== 'TEXT') {
+    throw new Error(`"responseModalities" must be either "AUDIO" or "TEXT", got: "${modality}"`);
+  }
   // Model format validation (should start with "models/")
   if (!setupMessage.setup.model.startsWith('models/')) {
     throw new Error('Model must be in format "models/{model-name}"');
@@ -405,7 +414,7 @@ class VoiceChatSession {
             setup: {
               model: `models/${validModel}`,
               generationConfig: {
-                responseModalities: ['AUDIO', 'TEXT'], // Include TEXT to get transcripts alongside audio
+                responseModalities: ['AUDIO'], // Use camelCase for WebSocket JSON messages - only ONE modality allowed
                 speechConfig: {
                   languageCode: 'en-US', // Required for voice chat sessions
                   voiceConfig: {
@@ -422,6 +431,8 @@ class VoiceChatSession {
                 ...(this.generationConfig.topK !== undefined && { topK: this.generationConfig.topK }),
                 ...(this.generationConfig.maxOutputTokens !== undefined && { maxOutputTokens: this.generationConfig.maxOutputTokens }),
                 ...(this.generationConfig.candidateCount !== undefined && { candidateCount: this.generationConfig.candidateCount }),
+                // Enable output audio transcription - transcripts appear in response.serverContent.outputTranscription.text
+                outputAudioTranscription: {},
               },
               realtimeInputConfig: {
                 automaticActivityDetection: {
@@ -722,6 +733,24 @@ class VoiceChatSession {
         }
       }
 
+      // Handle inputAudioTranscription - per official API docs, appears in content.inputTranscription.text
+      if (content.inputTranscription?.text) {
+        const transcript = content.inputTranscription.text.trim();
+        if (transcript) {
+          console.log('Input transcription received (inputTranscription):', transcript);
+          this.onTranscript(transcript, 'user');
+        }
+      }
+
+      // Handle outputAudioTranscription - per official API docs, appears in content.outputTranscription.text
+      if (content.outputTranscription?.text) {
+        const transcript = content.outputTranscription.text.trim();
+        if (transcript) {
+          console.log('Output transcription received (outputTranscription):', transcript);
+          this.onTranscript(transcript, 'assistant');
+        }
+      }
+
       // Check for input transcript in modelTurn.clientContent (alternative location)
       if (content.modelTurn?.clientContent) {
         const clientContent = content.modelTurn.clientContent;
@@ -770,48 +799,33 @@ class VoiceChatSession {
             });
           }
 
-          // Handle text transcript (AI speech transcription)
-          // When using AUDIO + TEXT modalities, part.text contains speech transcripts
-          // Filter out markdown-formatted reasoning and meta-commentary
+          // Handle text in part.text (may contain reasoning or other text, not primary transcripts)
+          // Primary transcripts come from outputTranscription.text when outputAudioTranscription is enabled
+          // This filtering is for part.text only - filter out obvious markdown-formatted reasoning
           if (part.text) {
             const text = part.text.trim();
             
-            // Skip very short text (likely not full speech)
+            // Skip very short text
             if (text.length < 3) {
               return;
             }
             
-            // Filter out markdown-formatted reasoning (text starting with **)
-            // Reasoning text often appears as bold markdown sections like "**Title**"
-            if (text.startsWith('**') || /^\*\*[^*]+\*\*/.test(text)) {
-              console.log('AI text filtered (markdown reasoning):', text.substring(0, 100));
+            // Filter out markdown-formatted reasoning (text starting with ** or containing markdown headers)
+            // Reasoning text often appears as bold markdown sections like "**Title**" or "**Recognizing...**"
+            const isMarkdownReasoning = text.startsWith('**') || /^\*\*[^*]+\*\*/.test(text);
+            
+            if (isMarkdownReasoning) {
+              console.log('AI text filtered (markdown reasoning in part.text):', text.substring(0, 100));
               return;
             }
             
-            // Filter out meta-commentary patterns (internal thinking, not spoken words)
-            // These patterns indicate the AI is describing its own actions rather than speaking
-            const reasoningPatterns = [
-              /^\*\*.*\*\*/, // Bold markdown titles
-              /^(Recognizing|Addressing|Verifying|Confirming|Checking|Focusing|Dismissing|Initiating|Assessing|Interpreting|Responding|Investigating|Reviewing|Analyzing|Refining|Enhancing|Updating|Fixing|Improving|Adding|Removing|Ensuring|Making sure)/i, // Action verbs at start
-              /^I'm (having trouble|recognizing|interpreting|grappling|focusing|checking|confirming|assessing|reviewing|analyzing)/i, // "I'm [action]" patterns
-              /^I (suspect|assume|plan|need|want|think|believe|feel|notice|observe)/i, // Internal thought patterns
-              /^My (role|focus|thought|plan|understanding|interpretation|assessment)/i, // Self-referential meta-commentary
-              /^This (check|verification|analysis|review|assessment|interpretation)/i, // Meta-references
-              /seems there might be ongoing/i, // Meta-analysis patterns
-              /recalling prior mentions/i, // Meta-memory references
-            ];
-            
-            const isReasoning = reasoningPatterns.some(pattern => pattern.test(text));
-            
-            if (isReasoning) {
-              console.log('AI text filtered (meta-commentary/reasoning):', text.substring(0, 100));
-              return;
+            // Log but don't filter other text in part.text - it may be useful context
+            // Note: Primary transcripts should come from outputTranscription.text
+            console.log('Text in part.text (may be reasoning/context):', text.substring(0, 200));
+            // Only send to transcript if it looks like actual speech (not a single-line reasoning header)
+            if (text.length > 20 && !/^[\*\s]+$/.test(text)) {
+              this.onTranscript(text, 'assistant');
             }
-            
-            // If we get here, it's likely actual speech transcript
-            // Log all text parts before sending to help with debugging
-            console.log('AI text transcript received (speech):', text.substring(0, 200));
-            this.onTranscript(text, 'assistant');
           }
         }
       }

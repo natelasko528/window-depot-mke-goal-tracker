@@ -96,13 +96,84 @@ if (response.serverContent?.modelTurn) {
       // Play audio
     }
     
-    // Text transcript
+    // Text transcript (may also appear in part.text when using AUDIO modality)
     if (part.text) {
       console.log('AI said:', part.text);
     }
   }
 }
 ```
+
+## Audio Transcriptions
+
+The Live API supports transcription of both audio input (user speech) and audio output (model speech). This is separate from the `part.text` that may appear in `modelTurn.parts`.
+
+### Output Audio Transcription
+
+To enable transcription of the model's audio output, add `outputAudioTranscription: {}` to the setup config:
+
+```javascript
+const setupMessage = {
+  setup: {
+    model: `models/gemini-2.5-flash-native-audio-preview-12-2025`,
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      outputAudioTranscription: {}, // Enable output transcription
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: 'Puck',
+          },
+        },
+      },
+    },
+    // ...
+  },
+};
+```
+
+Access transcripts in responses via `response.serverContent.outputTranscription.text`:
+
+```javascript
+if (response.serverContent?.outputTranscription) {
+  const transcript = response.serverContent.outputTranscription.text;
+  console.log('AI speech transcript:', transcript);
+  // Display transcript in chat UI
+}
+```
+
+### Input Audio Transcription
+
+To enable transcription of user audio input, add `inputAudioTranscription: {}` to the setup config:
+
+```javascript
+const setupMessage = {
+  setup: {
+    model: `models/gemini-2.5-flash-native-audio-preview-12-2025`,
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      inputAudioTranscription: {}, // Enable input transcription
+      // ...
+    },
+    // ...
+  },
+};
+```
+
+Access transcripts in responses via `response.serverContent.inputTranscription.text`:
+
+```javascript
+if (response.serverContent?.inputTranscription) {
+  const transcript = response.serverContent.inputTranscription.text;
+  console.log('User speech transcript:', transcript);
+  // Display transcript in chat UI
+}
+```
+
+**Important Notes:**
+- Transcription language is automatically inferred from the audio
+- Both `inputAudioTranscription` and `outputAudioTranscription` can be enabled simultaneously
+- Transcription is separate from `part.text` in `modelTurn.parts` (which may contain other text)
 
 ## Sending Text
 
@@ -145,15 +216,108 @@ In `src/lib/voiceChat.js`, the Live API is fully implemented:
 - **1008** - Policy violation (model not supported or permission denied)
 - **1006** - Abnormal closure (connection lost)
 
+## Voice Activity Detection (VAD)
+
+The Live API includes automatic Voice Activity Detection (VAD) to detect when users start and stop speaking. This is configured via `realtimeInputConfig.automaticActivityDetection`:
+
+### Automatic VAD (Default)
+
+By default, automatic VAD is enabled. You can customize sensitivity settings:
+
+```javascript
+const setupMessage = {
+  setup: {
+    // ...
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        disabled: false, // Default: automatic VAD enabled
+        startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', // or 'START_SENSITIVITY_LOW', 'START_SENSITIVITY_UNSPECIFIED'
+        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', // or 'END_SENSITIVITY_LOW', 'END_SENSITIVITY_UNSPECIFIED'
+        prefixPaddingMs: 100, // Padding before speech start (ms)
+        silenceDurationMs: 500, // Silence duration before ending speech (ms)
+      },
+    },
+  },
+};
+```
+
+**Sensitivity Options:**
+- `START_SENSITIVITY_HIGH`: Detects start of speech more often (default if unspecified)
+- `START_SENSITIVITY_LOW`: Detects start of speech less often
+- `END_SENSITIVITY_HIGH`: Ends speech detection more often (default if unspecified)
+- `END_SENSITIVITY_LOW`: Ends speech detection less often
+
+### Manual VAD (Disable Automatic)
+
+To disable automatic VAD and manually control activity detection:
+
+```javascript
+const setupMessage = {
+  setup: {
+    // ...
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        disabled: true, // Client must send activityStart/activityEnd messages
+      },
+    },
+  },
+};
+```
+
+When disabled, you must send `activityStart` and `activityEnd` messages:
+
+```javascript
+// Mark start of speech
+ws.send(JSON.stringify({
+  realtimeInput: {
+    activityStart: {},
+  },
+}));
+
+// Send audio chunks
+ws.send(JSON.stringify({
+  realtimeInput: {
+    audio: { data: base64Audio, mimeType: 'audio/pcm;rate=16000' },
+  },
+}));
+
+// Mark end of speech
+ws.send(JSON.stringify({
+  realtimeInput: {
+    activityEnd: {},
+  },
+}));
+```
+
+**Note:** When automatic VAD is enabled, use `audioStreamEnd` instead of `activityEnd` to indicate the audio stream has ended (e.g., microphone turned off).
+
+## Important Limitations
+
+### Response Modalities
+
+**CRITICAL:** You can only set **one** response modality (`TEXT` or `AUDIO`) per session. Setting both `['AUDIO', 'TEXT']` results in a `1007: Invalid argument` error.
+
+```javascript
+// ✅ CORRECT: Single modality
+responseModalities: ['AUDIO']
+
+// ❌ WRONG: Multiple modalities cause error
+responseModalities: ['AUDIO', 'TEXT']
+```
+
+To get transcripts with AUDIO modality, use `outputAudioTranscription: {}` and `inputAudioTranscription: {}` instead.
+
 ## Best Practices
 
-1. **Validate setup message** before sending
+1. **Validate setup message** before sending - ensure only ONE responseModality is set
 2. **Wait for setupComplete** before sending content
 3. **Handle WebSocket close events** with proper error messages
 4. **Use camelCase** for WebSocket JSON field names (different from REST API which uses snake_case)
-5. **Clean up WebSocket** connections on unmount
+5. **Enable transcriptions** via `outputAudioTranscription` and `inputAudioTranscription` if you need transcripts
+6. **Clean up WebSocket** connections on unmount
 
 ## References
 
 - [Gemini Live API Guide](https://ai.google.dev/gemini-api/docs/live-guide)
 - [Live API Reference](https://ai.google.dev/api/live)
+- [Live API Capabilities Guide](https://ai.google.dev/gemini-api/docs/live-guide#python) - Comprehensive guide covering transcriptions, VAD, and all configuration options
