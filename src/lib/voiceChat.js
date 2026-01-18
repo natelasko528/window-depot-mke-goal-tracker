@@ -285,6 +285,7 @@ class VoiceChatSession {
               generationConfig: {
                 responseModalities: ['AUDIO'], // camelCase for WebSocket JSON messages
                 speechConfig: {
+                  languageCode: 'en-US', // Required for voice chat sessions
                   voiceConfig: {
                     prebuiltVoiceConfig: {
                       voiceName: this.voice,
