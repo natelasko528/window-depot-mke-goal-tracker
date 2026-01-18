@@ -2835,7 +2835,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       return { currentStreak: 0, bestStreak: 0 };
     }
 
-    const today = getToday();
+    // const today = getToday(); // TODO: For future use - planned feature enhancement
     const dates = Object.keys(dailyLogs).filter(date => dailyLogs[date][currentUser.id]).sort().reverse();
 
     let currentStreak = 0;
@@ -4264,13 +4264,13 @@ function Feed({
   const [editContent, setEditContent] = useState('');
   const [commentingId, setCommentingId] = useState(null);
   const [newComment, setNewComment] = useState('');
-  const [showReactionPicker, setShowReactionPicker] = useState(null);
+  // const [showReactionPicker, setShowReactionPicker] = useState(null); // TODO: For future use - reaction picker feature
   const [viewMode, setViewMode] = useState('feed'); // 'feed' or 'achievements'
 
-  const EMOJI_REACTIONS = ['👍', '❤️', '🔥', '💪', '🎉', '🎯'];
+  // const EMOJI_REACTIONS = ['👍', '❤️', '🔥', '💪', '🎉', '🎯']; // TODO: For future use - reaction system
 
   // Backwards compatibility - if new props not provided, use defaults
-  const displayFeed = filteredFeed || feed;
+  // const displayFeed = filteredFeed || feed; // TODO: For future use - feed display modes
   const reactions = feedReactions || {};
   
   const handlePost = () => {
@@ -4293,34 +4293,34 @@ function Feed({
     }
   };
 
-  const handleAddReaction = (postId, emoji) => {
-    if (onAddReaction) {
-      onAddReaction(postId, emoji);
-      setShowReactionPicker(null);
-    }
-  };
+  // const handleAddReaction = (postId, emoji) => { // TODO: For future use - reaction handler
+  //   if (onAddReaction) {
+  //     onAddReaction(postId, emoji);
+  //     setShowReactionPicker(null);
+  //   }
+  // };
 
-  const getReactionCounts = (postId) => {
-    const reactionKey = `${postId}_reactions`;
-    const postReactions = reactions[reactionKey] || {};
-    const counts = {};
+  // const getReactionCounts = (postId) => { // TODO: For future use - reaction counting
+  //   const reactionKey = `${postId}_reactions`;
+  //   const postReactions = reactions[reactionKey] || {};
+  //   const counts = {};
+  //
+  //   Object.values(postReactions).forEach(userReactions => {
+  //     userReactions.forEach(emoji => {
+  //       counts[emoji] = (counts[emoji] || 0) + 1;
+  //     });
+  //   });
+  //
+  //   return counts;
+  // };
 
-    Object.values(postReactions).forEach(userReactions => {
-      userReactions.forEach(emoji => {
-        counts[emoji] = (counts[emoji] || 0) + 1;
-      });
-    });
+  // const getUserReactions = (postId) => { // TODO: For future use - user reaction retrieval
+  //   const reactionKey = `${postId}_reactions`;
+  //   const postReactions = reactions[reactionKey] || {};
+  //   return postReactions[currentUser?.id] || [];
+  // };
 
-    return counts;
-  };
-
-  const getUserReactions = (postId) => {
-    const reactionKey = `${postId}_reactions`;
-    const postReactions = reactions[reactionKey] || {};
-    return postReactions[currentUser?.id] || [];
-  };
-
-  const achievementPosts = feed.filter(p => p.type === 'achievement' || p.isAuto);
+  // const achievementPosts = feed.filter(p => p.type === 'achievement' || p.isAuto); // TODO: For future use - achievement filtering
 
   return (
     <div>

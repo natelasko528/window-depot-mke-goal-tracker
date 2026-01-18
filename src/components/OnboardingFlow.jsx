@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, ChevronRight, Zap } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 
 /**
  * Onboarding Flow Component

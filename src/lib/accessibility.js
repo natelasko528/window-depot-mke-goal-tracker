@@ -306,7 +306,6 @@ export const createSemanticButton = (text, onClickHandler, options = {}) => {
     ariaPressed = false,
     ariaExpanded = false,
     disabled = false,
-    icon = null,
   } = options;
 
   return {
