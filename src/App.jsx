@@ -265,6 +265,12 @@ export default function WindowDepotTracker() {
       voiceName: 'Puck',
       rateLimit: 15,
       voiceChatEnabled: true,
+      voiceChatSettings: {
+        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+        silenceDurationMs: 500,
+        prefixPaddingMs: 100,
+      },
     },
     appearance: {
       compactMode: false,
@@ -339,13 +345,27 @@ export default function WindowDepotTracker() {
 
         // Load and apply settings
         if (savedSettings) {
-          setAppSettings(prev => ({ ...prev, ...savedSettings }));
+          // Ensure voiceChatSettings exists with defaults if missing
+          const mergedSettings = {
+            ...savedSettings,
+            ai: {
+              ...savedSettings.ai,
+              voiceChatSettings: {
+                startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+                endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+                silenceDurationMs: 500,
+                prefixPaddingMs: 100,
+                ...savedSettings.ai?.voiceChatSettings,
+              },
+            },
+          };
+          setAppSettings(prev => ({ ...prev, ...mergedSettings }));
           // Configure AI with saved settings
-          if (savedSettings.ai?.apiKey) {
+          if (mergedSettings.ai?.apiKey) {
             configureAI({
-              apiKey: savedSettings.ai.apiKey,
-              model: savedSettings.ai.textModel || 'gemini-2.5-flash',
-              rateLimit: savedSettings.ai.rateLimit || 15,
+              apiKey: mergedSettings.ai.apiKey,
+              model: mergedSettings.ai.textModel || 'gemini-2.5-flash',
+              rateLimit: mergedSettings.ai.rateLimit || 15,
             });
           }
         }
@@ -3657,6 +3677,12 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
       const session = createVoiceChatSession(apiKey, {
         model: appSettings?.ai?.voiceModel || 'gemini-2.5-flash-native-audio-preview-12-2025',
         voice: appSettings?.ai?.voiceName || 'Puck',
+        voiceChatSettings: appSettings?.ai?.voiceChatSettings || {
+          startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+          endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+          silenceDurationMs: 500,
+          prefixPaddingMs: 100,
+        },
         systemInstruction: `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
 The current user is ${currentUser?.name || 'User'} (${currentUser?.role || 'employee'}).
 Today's stats: Reviews: ${todayStats?.reviews || 0}, Demos: ${todayStats?.demos || 0}, Callbacks: ${todayStats?.callbacks || 0}.
@@ -4807,6 +4833,19 @@ function SettingsPage({ settings, onSaveSettings }) {
     setValidationResult(null);
   };
 
+  const handleVoiceChatSettingChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      ai: {
+        ...prev.ai,
+        voiceChatSettings: {
+          ...(prev.ai.voiceChatSettings || {}),
+          [key]: value
+        }
+      }
+    }));
+  };
+
   const handleAppearanceChange = (key, value) => {
     setLocalSettings(prev => ({
       ...prev,
@@ -5140,6 +5179,100 @@ function SettingsPage({ settings, onSaveSettings }) {
             color: THEME.text,
           }}>
             Voice chat is not supported in this browser. Try Chrome or Edge.
+          </div>
+        )}
+
+        {/* Voice Chat Advanced Settings */}
+        {localSettings.ai.voiceChatEnabled && isVoiceChatSupported() && (
+          <div style={{
+            marginTop: '20px',
+            padding: '16px',
+            background: THEME.secondary,
+            borderRadius: '8px',
+            border: `2px solid ${THEME.border}`,
+          }}>
+            <div style={{ marginBottom: '16px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Voice Chat Settings
+            </div>
+            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: THEME.textLight }}>
+              Configure voice activity detection and transcription behavior
+            </p>
+
+            {/* Start of Speech Sensitivity */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>
+                Start of Speech Sensitivity
+              </label>
+              <select
+                value={localSettings.ai.voiceChatSettings?.startOfSpeechSensitivity || 'START_SENSITIVITY_LOW'}
+                onChange={(e) => handleVoiceChatSettingChange('startOfSpeechSensitivity', e.target.value)}
+                style={selectStyle}
+              >
+                <option value="START_SENSITIVITY_LOW">Low - More tolerant, needs clear speech</option>
+                <option value="START_SENSITIVITY_MEDIUM">Medium - Balanced detection</option>
+                <option value="START_SENSITIVITY_HIGH">High - Detects soft speech easily</option>
+              </select>
+              <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                How easily the system detects when you start speaking
+              </p>
+            </div>
+
+            {/* End of Speech Sensitivity */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>
+                End of Speech Sensitivity
+              </label>
+              <select
+                value={localSettings.ai.voiceChatSettings?.endOfSpeechSensitivity || 'END_SENSITIVITY_LOW'}
+                onChange={(e) => handleVoiceChatSettingChange('endOfSpeechSensitivity', e.target.value)}
+                style={selectStyle}
+              >
+                <option value="END_SENSITIVITY_LOW">Low - Waits longer before ending turn</option>
+                <option value="END_SENSITIVITY_MEDIUM">Medium - Balanced detection</option>
+                <option value="END_SENSITIVITY_HIGH">High - Ends turn quickly after pause</option>
+              </select>
+              <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                How quickly the system detects when you stop speaking
+              </p>
+            </div>
+
+            {/* Silence Duration */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>
+                Silence Duration (ms)
+              </label>
+              <input
+                type="number"
+                min="100"
+                max="2000"
+                step="50"
+                value={localSettings.ai.voiceChatSettings?.silenceDurationMs || 500}
+                onChange={(e) => handleVoiceChatSettingChange('silenceDurationMs', parseInt(e.target.value) || 500)}
+                style={inputStyle}
+              />
+              <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                Milliseconds of silence before turn ends (100-2000ms, default: 500ms)
+              </p>
+            </div>
+
+            {/* Prefix Padding */}
+            <div style={{ marginBottom: '0' }}>
+              <label style={labelStyle}>
+                Prefix Padding (ms)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="500"
+                step="10"
+                value={localSettings.ai.voiceChatSettings?.prefixPaddingMs || 100}
+                onChange={(e) => handleVoiceChatSettingChange('prefixPaddingMs', parseInt(e.target.value) || 100)}
+                style={inputStyle}
+              />
+              <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                Extra audio before detected speech start to avoid cutting words (0-500ms, default: 100ms)
+              </p>
+            </div>
           </div>
         )}
       </div>

@@ -241,6 +241,13 @@ class VoiceChatSession {
     this.onTranscript = options.onTranscript || (() => {});
     this.onError = options.onError || (() => {});
     this.onAudioLevel = options.onAudioLevel || (() => {});
+    // Voice chat settings for VAD and transcription
+    this.voiceChatSettings = options.voiceChatSettings || {
+      startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+      endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+      silenceDurationMs: 500,
+      prefixPaddingMs: 100,
+    };
     this.isConnected = false;
     this.isListening = false;
     this.analyser = null;
@@ -309,6 +316,18 @@ class VoiceChatSession {
                     },
                   },
                 },
+              },
+              realtimeInputConfig: {
+                automaticActivityDetection: {
+                  disabled: false,
+                  startOfSpeechSensitivity: this.voiceChatSettings.startOfSpeechSensitivity || 'START_SENSITIVITY_LOW',
+                  endOfSpeechSensitivity: this.voiceChatSettings.endOfSpeechSensitivity || 'END_SENSITIVITY_LOW',
+                  silenceDurationMs: this.voiceChatSettings.silenceDurationMs || 500,
+                  prefixPaddingMs: this.voiceChatSettings.prefixPaddingMs || 100,
+                },
+              },
+              inputAudioTranscription: {
+                languageCode: 'en-US',
               },
               systemInstruction: {
                 parts: [{ text: this.systemInstruction }],
@@ -538,7 +557,15 @@ class VoiceChatSession {
     if (response.serverContent) {
       const content = response.serverContent;
 
-      // Check for model turn
+      // Check for input transcript (user speech transcription)
+      if (content.inputTranscript) {
+        const transcript = content.inputTranscript.text || content.inputTranscript;
+        if (transcript && typeof transcript === 'string' && transcript.trim()) {
+          this.onTranscript(transcript, 'user');
+        }
+      }
+
+      // Check for model turn (AI audio response)
       if (content.modelTurn) {
         const parts = content.modelTurn.parts || [];
 
@@ -550,7 +577,7 @@ class VoiceChatSession {
             processAudioQueue();
           }
 
-          // Handle text transcript
+          // Handle text transcript (AI speech transcription)
           if (part.text) {
             this.onTranscript(part.text, 'assistant');
           }
@@ -612,8 +639,8 @@ class VoiceChatSession {
       this.startAudioLevelMonitoring();
 
       // Create ScriptProcessorNode to capture raw PCM audio
-      // Buffer size 4096 samples = ~256ms at 16kHz (good for real-time streaming)
-      scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
+      // Buffer size 2048 samples = ~128ms at 16kHz (more responsive VAD than 4096 samples)
+      scriptProcessor = ctx.createScriptProcessor(2048, 1, 1);
       
       scriptProcessor.onaudioprocess = (event) => {
         if (!this.isListening || !this.isConnected) return;
