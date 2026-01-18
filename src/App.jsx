@@ -3485,14 +3485,14 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [chatSessions, setChatSessions] = useState([]);
-  const [chatMode, setChatMode] = useState('text'); // 'text' or 'voice'
+  // eslint-disable-next-line no-unused-vars
+  const [chatMode, setChatMode] = useState('text'); // 'text' or 'voice' - kept for internal state tracking
   const [voiceStatus, setVoiceStatus] = useState('disconnected'); // 'disconnected', 'connecting', 'connected', 'ready', 'listening', 'processing'
   const [audioLevel, setAudioLevel] = useState(0);
   const [voiceError, setVoiceError] = useState(null);
   // eslint-disable-next-line no-unused-vars
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [showChatSettings, setShowChatSettings] = useState(false);
-  const [isAnimatingPosition, setIsAnimatingPosition] = useState(false);
   const messagesEndRef = useRef(null);
   const saveDebounceRef = useRef(null);
   const voiceSessionRef = useRef(null);
@@ -3555,22 +3555,6 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
     loadChatHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
-
-  // Animation: Track voiceStatus transition from disconnected to connected
-  useEffect(() => {
-    if (voiceStatus === 'connecting' || voiceStatus === 'connected') {
-      // Trigger animation when transitioning from disconnected to connected
-      setIsAnimatingPosition(true);
-      // Animation completes after transition duration (0.5s)
-      const timer = setTimeout(() => {
-        setIsAnimatingPosition(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    } else if (voiceStatus === 'disconnected') {
-      // Reset animation state when disconnecting
-      setIsAnimatingPosition(false);
-    }
-  }, [voiceStatus]);
 
   // Helper function to create new chat session
   const createNewSession = useCallback(async (userId) => {
@@ -3793,6 +3777,27 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
   const handleSend = async () => {
     if (!input.trim() || isLoading || !isAIConfigured()) return;
 
+    // If voice session is active, send text via Live API
+    if (voiceSessionRef.current && voiceStatus !== 'disconnected') {
+      try {
+        const userMessage = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: input.trim(),
+          timestamp: Date.now(),
+          isVoice: false, // Text message via voice session
+        };
+        setMessages(prev => [...prev, userMessage]);
+        setInput('');
+        voiceSessionRef.current.sendText(input.trim());
+        return;
+      } catch (error) {
+        console.error('Failed to send text via voice session:', error);
+        // Fall through to text API fallback
+      }
+    }
+
+    // Default: use text API
     const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -4000,13 +4005,14 @@ Keep responses conversational and concise for voice interaction.`,
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleEndVoiceChat = () => {
     if (voiceSessionRef.current) {
       voiceSessionRef.current.disconnect();
       voiceSessionRef.current = null;
     }
     setVoiceStatus('disconnected');
-    setChatMode('text');
+    setChatMode('text'); // Keep for internal state tracking
     setAudioLevel(0);
   };
 
@@ -4039,7 +4045,7 @@ Keep responses conversational and concise for voice interaction.`,
           AI Coach
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {isAIConfigured() && chatMode === 'text' && (
+          {isAIConfigured() && voiceStatus === 'disconnected' && (
             <div style={{ 
               fontSize: '12px', 
               color: THEME.textLight,
@@ -4051,7 +4057,7 @@ Keep responses conversational and concise for voice interaction.`,
               {remainingRequests} requests/min
             </div>
           )}
-          {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
+          {voiceStatus !== 'disconnected' && (
             <div style={{ 
               fontSize: '12px', 
               color: getStatusColor(), 
@@ -4186,86 +4192,6 @@ Keep responses conversational and concise for voice interaction.`,
               </select>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Mode Toggle */}
-      {voiceChatEnabled && isAIConfigured() && (
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          marginBottom: '20px',
-          background: THEME.secondary,
-          padding: '4px',
-          borderRadius: '10px',
-        }}>
-          <button
-            onClick={() => chatMode === 'voice' ? handleEndVoiceChat() : setChatMode('text')}
-            onMouseEnter={(e) => {
-              if (chatMode !== 'text') {
-                e.currentTarget.style.background = 'rgba(0, 123, 255, 0.1)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (chatMode !== 'text') {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              background: chatMode === 'text' ? THEME.primary : 'transparent',
-              color: chatMode === 'text' ? THEME.white : THEME.text,
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: chatMode === 'text' ? 'scale(1)' : 'scale(1)',
-            }}
-          >
-            <MessageSquare size={16} />
-            Text Chat
-          </button>
-          <button
-            onClick={() => chatMode === 'text' ? handleStartVoiceChat() : null}
-            disabled={voiceStatus === 'connecting'}
-            onMouseEnter={(e) => {
-              if (chatMode !== 'voice' && !e.currentTarget.disabled) {
-                e.currentTarget.style.background = 'rgba(0, 123, 255, 0.1)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (chatMode !== 'voice') {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              background: chatMode === 'voice' ? THEME.primary : 'transparent',
-              color: chatMode === 'voice' ? THEME.white : THEME.text,
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: voiceStatus === 'connecting' ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-              opacity: voiceStatus === 'connecting' ? 0.6 : 1,
-            }}
-          >
-            <Mic size={16} />
-            Voice Chat
-          </button>
         </div>
       )}
 
@@ -4454,169 +4380,6 @@ Keep responses conversational and concise for voice interaction.`,
           </div>
         )}
 
-        {/* Voice Chat Controls - Active Mode (top position) */}
-        {chatMode === 'voice' && voiceStatus !== 'disconnected' && (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '20px',
-            padding: '20px 24px',
-            marginBottom: '20px',
-            background: THEME.secondary,
-            borderRadius: '12px',
-            transform: isAnimatingPosition ? 'translateY(250px)' : 'translateY(0)',
-            transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
-            opacity: isAnimatingPosition ? 0.8 : 1,
-          }}>
-            {/* Audio Level Indicator */}
-            <div style={{
-              width: '100%',
-              height: '6px',
-              background: THEME.white,
-              borderRadius: '3px',
-              overflow: 'hidden',
-              position: 'relative',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${Math.max(audioLevel * 100, 2)}%`,
-                background: voiceStatus === 'listening' 
-                  ? `linear-gradient(90deg, ${THEME.success} 0%, #28a745 100%)` 
-                  : `linear-gradient(90deg, ${THEME.primary} 0%, #0056b3 100%)`,
-                borderRadius: '3px',
-                transition: 'width 0.1s ease-out, background 0.3s ease',
-                boxShadow: voiceStatus === 'listening' ? '0 0 8px rgba(40, 167, 69, 0.4)' : 'none',
-              }} />
-            </div>
-
-            {/* Microphone Button */}
-            <button
-              onClick={handleToggleListening}
-              disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
-              onMouseEnter={(e) => {
-                if (!e.currentTarget.disabled) {
-                  e.currentTarget.style.transform = 'scale(1.05)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-              }}
-              style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
-                background: voiceStatus === 'listening' 
-                  ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)` 
-                  : `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
-                border: 'none',
-                cursor: (voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: voiceStatus === 'listening'
-                  ? `0 0 0 ${8 + audioLevel * 20}px rgba(220,53,69,0.25), 0 6px 20px rgba(220,53,69,0.3)`
-                  : '0 6px 20px rgba(0, 123, 255, 0.25)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: 'scale(1)',
-                position: 'relative',
-              }}
-            >
-              {voiceStatus === 'listening' ? (
-                <MicOff size={32} color={THEME.white} />
-              ) : (
-                <Mic size={32} color={THEME.white} />
-              )}
-            </button>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button
-                onClick={handleEndVoiceChat}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = THEME.border;
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = THEME.white;
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-                style={{
-                  padding: '10px 24px',
-                  background: THEME.white,
-                  border: `1px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  color: THEME.text,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-                }}
-              >
-                End Voice Chat
-              </button>
-            </div>
-          </div>
-        )}
-        
-        {/* Centered Start Voice Chat Button - Disconnected State (above messages) */}
-        {chatMode === 'voice' && voiceStatus === 'disconnected' && (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '32px 24px',
-            marginBottom: '16px',
-            background: THEME.secondary,
-            borderRadius: '12px',
-            gap: '16px',
-          }}>
-            <button
-              onClick={handleStartVoiceChat}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-              }}
-              style={{
-                width: '100px',
-                height: '100px',
-                borderRadius: '50%',
-                background: `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`,
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 8px 24px rgba(0, 123, 255, 0.35)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: 'scale(1)',
-                position: 'relative',
-              }}
-            >
-              <Mic size={40} color={THEME.white} />
-            </button>
-            <div style={{
-              fontSize: '16px',
-              color: THEME.text,
-              fontWeight: '600',
-              textAlign: 'center',
-            }}>
-              Start Voice Chat
-            </div>
-            <div style={{
-              fontSize: '13px',
-              color: THEME.textLight,
-              textAlign: 'center',
-              maxWidth: '300px',
-            }}>
-              Tap the microphone to begin a voice conversation with your AI coach
-            </div>
-          </div>
-        )}
-
         {/* Messages */}
         <div style={{
           flex: 1,
@@ -4752,70 +4515,138 @@ Keep responses conversational and concise for voice interaction.`,
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input - Text Chat Mode */}
-        {chatMode === 'text' && (
-          <>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
-                disabled={isLoading || !isAIConfigured()}
-                maxLength={500}
-                rows={2}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  border: `2px solid ${THEME.border}`,
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontFamily: 'inherit',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  minHeight: '50px',
-                  maxHeight: '120px',
-                }}
-              />
+        {/* Unified Input Area - Text and Voice */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={isAIConfigured() ? "Ask me anything about your goals or the app..." : "AI not configured"}
+            disabled={isLoading || !isAIConfigured() || voiceStatus === 'connecting'}
+            maxLength={500}
+            rows={2}
+            style={{
+              flex: 1,
+              padding: '12px',
+              border: `2px solid ${THEME.border}`,
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+              minHeight: '50px',
+              maxHeight: '120px',
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+            {/* Microphone Button */}
+            {voiceChatEnabled && (
               <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading || !isAIConfigured()}
+                onClick={() => {
+                  if (voiceStatus === 'disconnected') {
+                    handleStartVoiceChat();
+                  } else if (voiceStatus === 'listening') {
+                    handleToggleListening();
+                  } else if (voiceStatus === 'ready') {
+                    handleToggleListening();
+                  }
+                }}
+                disabled={voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing'}
+                onMouseEnter={(e) => {
+                  if (!e.currentTarget.disabled) {
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                    e.currentTarget.style.background = voiceStatus === 'listening' 
+                      ? `linear-gradient(135deg, #c82333 0%, #a02133 100%)`
+                      : `linear-gradient(135deg, #0056b3 0%, #004085 100%)`;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.background = voiceStatus === 'listening'
+                    ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)`
+                    : voiceStatus !== 'disconnected'
+                    ? `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`
+                    : THEME.primary;
+                }}
                 style={{
-                  padding: '12px 20px',
-                  background: (input.trim() && !isLoading && isAIConfigured()) ? THEME.primary : THEME.border,
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  background: voiceStatus === 'listening'
+                    ? `linear-gradient(135deg, ${THEME.danger} 0%, #c82333 100%)`
+                    : voiceStatus !== 'disconnected'
+                    ? `linear-gradient(135deg, ${THEME.primary} 0%, #0056b3 100%)`
+                    : THEME.primary,
                   border: 'none',
-                  borderRadius: '8px',
-                  color: THEME.white,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: (input.trim() && !isLoading && isAIConfigured()) ? 'pointer' : 'not-allowed',
+                  cursor: (voiceStatus === 'disconnected' || voiceStatus === 'ready' || voiceStatus === 'listening') ? 'pointer' : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  height: 'fit-content',
+                  justifyContent: 'center',
+                  boxShadow: voiceStatus === 'listening'
+                    ? `0 0 0 ${4 + audioLevel * 10}px rgba(220,53,69,0.25), 0 4px 12px rgba(220,53,69,0.3)`
+                    : voiceStatus !== 'disconnected'
+                    ? '0 4px 12px rgba(0, 123, 255, 0.25)'
+                    : '0 4px 12px rgba(0, 123, 255, 0.2)',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  transform: 'scale(1)',
+                  opacity: voiceStatus === 'connecting' || voiceStatus === 'connected' || voiceStatus === 'processing' ? 0.6 : 1,
                 }}
+                title={
+                  voiceStatus === 'disconnected' ? 'Start voice chat' :
+                  voiceStatus === 'listening' ? 'Stop listening' :
+                  voiceStatus === 'ready' ? 'Start listening' :
+                  voiceStatus === 'connecting' ? 'Connecting...' :
+                  'Voice chat active'
+                }
               >
-                <Send size={18} />
+                {voiceStatus === 'listening' ? (
+                  <MicOff size={20} color={THEME.white} />
+                ) : (
+                  <Mic size={20} color={THEME.white} />
+                )}
               </button>
-            </div>
-            {!isAIConfigured() && (
-              <div style={{
-                marginTop: '8px',
-                padding: '8px',
-                background: THEME.warning,
-                borderRadius: '6px',
-                fontSize: '12px',
-                color: THEME.text,
-              }}>
-                Configure your Gemini API key in Settings to enable AI features
-              </div>
             )}
-          </>
+            {/* Send Button */}
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading || !isAIConfigured() || voiceStatus === 'connecting'}
+              style={{
+                padding: '12px',
+                minWidth: '48px',
+                height: '48px',
+                background: (input.trim() && !isLoading && isAIConfigured() && voiceStatus !== 'connecting') ? THEME.primary : THEME.border,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (input.trim() && !isLoading && isAIConfigured() && voiceStatus !== 'connecting') ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: (input.trim() && !isLoading && isAIConfigured() && voiceStatus !== 'connecting') ? '0 2px 8px rgba(0, 123, 255, 0.2)' : 'none',
+              }}
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
+        {!isAIConfigured() && (
+          <div style={{
+            marginTop: '8px',
+            padding: '8px',
+            background: THEME.warning,
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: THEME.text,
+          }}>
+            Configure your Gemini API key in Settings to enable AI features
+          </div>
         )}
       </div>
 
       {/* Role-Playing Prompts */}
-      {chatMode === 'voice' && voiceStatus === 'ready' && (
+      {voiceStatus === 'ready' && (
         <div style={{
           marginTop: '16px',
           background: THEME.accent,
