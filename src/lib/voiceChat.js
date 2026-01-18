@@ -362,6 +362,9 @@ class VoiceChatSession {
     this.setupPromiseResolve = null;
     this.setupPromiseReject = null;
     this.setupComplete = false;
+    // Transcript buffers - accumulate fragments until turnComplete
+    this.outputTranscriptBuffer = '';
+    this.inputTranscriptBuffer = '';
   }
 
   /**
@@ -374,6 +377,9 @@ class VoiceChatSession {
         this.setupPromiseResolve = resolve;
         this.setupPromiseReject = reject;
         this.setupComplete = false;
+        // Reset transcript buffers for new connection
+        this.outputTranscriptBuffer = '';
+        this.inputTranscriptBuffer = '';
 
         // Validate model name - ensure we use a valid native audio model
         const validModel = validateModel(this.model);
@@ -735,20 +741,32 @@ class VoiceChatSession {
       }
 
       // Handle inputAudioTranscription - per official API docs, appears in content.inputTranscription.text
+      // Buffer fragments until turnComplete to group words together
       if (content.inputTranscription?.text) {
         const transcript = content.inputTranscription.text.trim();
         if (transcript) {
-          console.log('Input transcription received (inputTranscription):', transcript);
-          this.onTranscript(transcript, 'user');
+          console.log('Input transcription fragment received (inputTranscription):', transcript);
+          // Accumulate fragments with space separator
+          if (this.inputTranscriptBuffer) {
+            this.inputTranscriptBuffer += ' ' + transcript;
+          } else {
+            this.inputTranscriptBuffer = transcript;
+          }
         }
       }
 
       // Handle outputAudioTranscription - per official API docs, appears in content.outputTranscription.text
+      // Buffer fragments until turnComplete to group words together
       if (content.outputTranscription?.text) {
         const transcript = content.outputTranscription.text.trim();
         if (transcript) {
-          console.log('Output transcription received (outputTranscription):', transcript);
-          this.onTranscript(transcript, 'assistant');
+          console.log('Output transcription fragment received (outputTranscription):', transcript);
+          // Accumulate fragments with space separator
+          if (this.outputTranscriptBuffer) {
+            this.outputTranscriptBuffer += ' ' + transcript;
+          } else {
+            this.outputTranscriptBuffer = transcript;
+          }
         }
       }
 
@@ -831,8 +849,24 @@ class VoiceChatSession {
         }
       }
 
-      // Check if turn is complete
+      // Check if turn is complete - flush transcript buffers
       if (content.turnComplete) {
+        // Flush output transcript (AI speech) if buffer has content
+        if (this.outputTranscriptBuffer) {
+          const completeTranscript = this.outputTranscriptBuffer.trim();
+          console.log('Turn complete - flushing output transcript:', completeTranscript);
+          this.onTranscript(completeTranscript, 'assistant');
+          this.outputTranscriptBuffer = '';
+        }
+        
+        // Flush input transcript (user speech) if buffer has content
+        if (this.inputTranscriptBuffer) {
+          const completeTranscript = this.inputTranscriptBuffer.trim();
+          console.log('Turn complete - flushing input transcript:', completeTranscript);
+          this.onTranscript(completeTranscript, 'user');
+          this.inputTranscriptBuffer = '';
+        }
+        
         this.onStatusChange('ready');
       }
     }
@@ -1066,6 +1100,9 @@ class VoiceChatSession {
       checkInterval = null;
     }
     endOfQueueAudioSource = null;
+    // Clear transcript buffers on disconnect
+    this.outputTranscriptBuffer = '';
+    this.inputTranscriptBuffer = '';
     this.isConnected = false;
     this.onStatusChange('disconnected');
   }
