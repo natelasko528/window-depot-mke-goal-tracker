@@ -3492,6 +3492,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
   // eslint-disable-next-line no-unused-vars
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [showChatSettings, setShowChatSettings] = useState(false);
+  const [isAnimatingPosition, setIsAnimatingPosition] = useState(false);
   const messagesEndRef = useRef(null);
   const saveDebounceRef = useRef(null);
   const voiceSessionRef = useRef(null);
@@ -3554,6 +3555,22 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
     loadChatHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
+
+  // Animation: Track voiceStatus transition from disconnected to connected
+  useEffect(() => {
+    if (voiceStatus === 'connecting' || voiceStatus === 'connected') {
+      // Trigger animation when transitioning from disconnected to connected
+      setIsAnimatingPosition(true);
+      // Animation completes after transition duration (0.5s)
+      const timer = setTimeout(() => {
+        setIsAnimatingPosition(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    } else if (voiceStatus === 'disconnected') {
+      // Reset animation state when disconnecting
+      setIsAnimatingPosition(false);
+    }
+  }, [voiceStatus]);
 
   // Helper function to create new chat session
   const createNewSession = useCallback(async (userId) => {
@@ -4448,6 +4465,9 @@ Keep responses conversational and concise for voice interaction.`,
             marginBottom: '20px',
             background: THEME.secondary,
             borderRadius: '12px',
+            transform: isAnimatingPosition ? 'translateY(250px)' : 'translateY(0)',
+            transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+            opacity: isAnimatingPosition ? 0.8 : 1,
           }}>
             {/* Audio Level Indicator */}
             <div style={{
