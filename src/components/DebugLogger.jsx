@@ -169,10 +169,10 @@ function DebugLogger() {
         onClick={() => setIsOpen(true)}
         style={{
           position: 'fixed',
-          bottom: '20px',
+          top: '20px',
           right: '20px',
-          width: '50px',
-          height: '50px',
+          width: '44px',
+          height: '44px',
           borderRadius: '50%',
           background: THEME.primary,
           color: THEME.white,
@@ -183,6 +183,14 @@ function DebugLogger() {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 10000,
+          fontSize: '20px',
+          transition: 'transform 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
         }}
         title="Open Debug Logger"
       >
@@ -196,7 +204,7 @@ function DebugLogger() {
       <div
         style={{
           position: 'fixed',
-          bottom: '20px',
+          top: '20px',
           right: '20px',
           background: THEME.white,
           border: `2px solid ${THEME.border}`,
@@ -244,10 +252,10 @@ function DebugLogger() {
     <div
       style={{
         position: 'fixed',
-        bottom: '20px',
+        top: '20px',
         right: '20px',
-        width: '600px',
-        maxHeight: '70vh',
+        width: 'min(600px, calc(100vw - 40px))',
+        maxHeight: 'calc(100vh - 100px)',
         background: THEME.white,
         border: `2px solid ${THEME.border}`,
         borderRadius: '12px',

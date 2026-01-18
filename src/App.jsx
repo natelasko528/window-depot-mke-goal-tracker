@@ -4058,9 +4058,9 @@ Keep responses conversational and concise for voice interaction.`,
         boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 340px)',
-        minHeight: '450px',
-        maxHeight: '650px',
+        height: 'calc(100vh - 240px)',
+        minHeight: '600px',
+        maxHeight: 'none',
       }}>
         {/* Chat History Dropdown */}
         {currentUser && chatSessions.length > 0 && (
@@ -5868,47 +5868,116 @@ function BottomNav({ activeView, onViewChange, isManager }) {
     isManager ? item.roles.includes('manager') : item.roles.includes('employee')
   );
   
+  // Determine if mobile based on visible items count (heuristic for small screens)
+  // On mobile, we'll use smaller sizing and potentially horizontal scroll
+  const itemCount = visibleItems.length;
+  const isMobile = itemCount > 6; // More than 6 items suggests mobile or manager view
+  
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      background: THEME.white,
-      borderTop: `1px solid ${THEME.border}`,
-      display: 'grid',
-      gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)`,
-      boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
-      zIndex: 1000,
-    }}>
-      {visibleItems.map(item => {
-        const Icon = item.icon;
-        const isActive = activeView === item.id;
-        
-        return (
-          <button
-            key={item.id}
-            onClick={() => onViewChange(item.id)}
-            style={{
-              padding: '12px 8px',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '4px',
-              color: isActive ? THEME.primary : THEME.textLight,
-              transition: 'all 0.2s',
-            }}
-          >
-            <Icon size={20} />
-            <span style={{ fontSize: '10px', fontWeight: '600' }}>
-              {item.label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <style>{`
+        @media (max-width: 768px) {
+          .bottom-nav-item {
+            padding: 8px 4px !important;
+            min-width: 0 !important;
+          }
+          .bottom-nav-icon {
+            width: 18px !important;
+            height: 18px !important;
+          }
+          .bottom-nav-label {
+            font-size: 9px !important;
+            line-height: 1.2 !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .bottom-nav-item {
+            padding: 6px 2px !important;
+          }
+          .bottom-nav-icon {
+            width: 16px !important;
+            height: 16px !important;
+          }
+          .bottom-nav-label {
+            font-size: 8px !important;
+          }
+        }
+      `}</style>
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: THEME.white,
+        borderTop: `1px solid ${THEME.border}`,
+        display: 'grid',
+        gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)`,
+        boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
+        zIndex: 1000,
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+      }}>
+        {visibleItems.map(item => {
+          const Icon = item.icon;
+          const isActive = activeView === item.id;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => onViewChange(item.id)}
+              className="bottom-nav-item"
+              style={{
+                padding: isMobile ? '8px 4px' : '12px 8px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '2px',
+                color: isActive ? THEME.primary : THEME.textLight,
+                transition: 'all 0.2s',
+                minWidth: '0',
+                flexShrink: 0,
+                touchAction: 'manipulation',
+              }}
+              onTouchStart={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+              }}
+              onTouchEnd={(e) => {
+                e.currentTarget.style.opacity = '1';
+              }}
+            >
+              <Icon 
+                size={isMobile ? 18 : 20} 
+                className="bottom-nav-icon"
+                style={{
+                  flexShrink: 0,
+                  minWidth: isMobile ? '18px' : '20px',
+                  minHeight: isMobile ? '18px' : '20px',
+                }}
+              />
+              <span 
+                className="bottom-nav-label"
+                style={{ 
+                  fontSize: isMobile ? '9px' : '10px', 
+                  fontWeight: '600',
+                  lineHeight: '1.2',
+                  textAlign: 'center',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  width: '100%',
+                  padding: '0 2px',
+                }}
+              >
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }

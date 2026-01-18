@@ -667,9 +667,14 @@ class VoiceChatSession {
     }
 
     // Check for input transcript at top-level (user speech transcription)
-    if (response.inputTranscript?.text) {
-      console.log('Input transcription received (top-level):', response.inputTranscript.text);
-      this.onTranscript(response.inputTranscript.text, 'user');
+    if (response.inputTranscript) {
+      const transcript = typeof response.inputTranscript === 'string' 
+        ? response.inputTranscript 
+        : response.inputTranscript.text;
+      if (transcript && typeof transcript === 'string' && transcript.trim()) {
+        console.log('Input transcription received (top-level):', transcript);
+        this.onTranscript(transcript.trim(), 'user');
+      }
     }
 
     // Handle server content (audio response)
@@ -683,7 +688,7 @@ class VoiceChatSession {
           : content.inputTranscript.text;
         if (transcript && typeof transcript === 'string' && transcript.trim()) {
           console.log('Input transcription received (serverContent):', transcript);
-          this.onTranscript(transcript, 'user');
+          this.onTranscript(transcript.trim(), 'user');
         }
       }
 
@@ -713,9 +718,45 @@ class VoiceChatSession {
           }
 
           // Handle text transcript (AI speech transcription)
+          // Note: When using AUDIO modality, part.text may contain reasoning/thinking text
+          // We want to capture actual speech transcripts, not internal reasoning
           if (part.text) {
-            console.log('AI text transcript received:', part.text.substring(0, 100));
-            this.onTranscript(part.text, 'assistant');
+            const text = part.text.trim();
+            
+            // Skip very short text (likely not full speech)
+            if (text.length < 3) {
+              return;
+            }
+            
+            // Identify reasoning/meta-commentary patterns (internal thinking, not spoken words)
+            // Reasoning often contains meta-descriptions of actions being taken
+            const reasoningIndicators = [
+              /^(I'm|I've|I'll|I will|Verifying|Confirming|Checking|Focusing|Addressing|Dismissing|Initiating|Assessing|Interpreting|Responding)/i,
+              /I'm (currently|focusing|acknowledging|interpreting|choosing|proceeding|maintaining)/i,
+              /(I suspect|I assume|I plan|I need|I want|My focus|This check)/i,
+            ];
+            
+            const isReasoning = reasoningIndicators.some(pattern => pattern.test(text));
+            
+            // Identify conversation patterns (actual speech)
+            // Real conversation usually has questions, exclamations, greetings, or complete sentences
+            const conversationIndicators = [
+              /\?/, // Questions
+              /!/, // Exclamations
+              /^(Hello|Hi|Hey|Thanks|Thank you|Sure|Yes|No|Okay|OK|Alright|Well|So|Actually)/i, // Greetings/starters
+              /^[A-Z][^.!?]*[.!?]$/, // Complete sentence with proper capitalization
+            ];
+            
+            const looksLikeConversation = conversationIndicators.some(pattern => pattern.test(text)) || 
+                                         (text.length > 30 && !isReasoning);
+            
+            // Send transcript if it looks like conversation OR if it's long enough and not clearly reasoning
+            if (looksLikeConversation || (text.length > 40 && !isReasoning)) {
+              console.log('AI text transcript received (conversation):', text.substring(0, 150));
+              this.onTranscript(text, 'assistant');
+            } else {
+              console.log('AI text received but filtered as reasoning/meta-commentary:', text.substring(0, 100));
+            }
           }
         }
       }
