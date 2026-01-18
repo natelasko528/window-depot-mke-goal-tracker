@@ -3717,6 +3717,9 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
     products: [],
     notes: '',
     date: getToday(),
+    time: '09:00',
+    duration: 60,
+    status: 'scheduled',
     countsAsDemo: true,
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -3728,6 +3731,9 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
         products: [],
         notes: '',
         date: getToday(),
+        time: '09:00',
+        duration: 60,
+        status: 'scheduled',
         countsAsDemo: true,
       });
       setShowForm(false);
@@ -3837,7 +3843,77 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
               }}
             />
           </div>
-          
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                Time
+              </label>
+              <select
+                value={formData.time}
+                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                {TIME_SLOTS.map(time => (
+                  <option key={time} value={time.split(' ')[0].padStart(5, '0')}>{time}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                Duration
+              </label>
+              <select
+                value={formData.duration}
+                onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                {DURATIONS.map(dur => (
+                  <option key={dur.value} value={dur.value}>{dur.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Status
+            </label>
+            <select
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+              }}
+            >
+              {APPOINTMENT_STATUS.map(status => (
+                <option key={status.id} value={status.id}>{status.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Product Interests
@@ -4041,22 +4117,44 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                 <div>
-                  <div style={{ 
-                    fontSize: '18px', 
-                    fontWeight: '700', 
-                    color: THEME.text, 
+                  <div style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: THEME.text,
                     marginBottom: '6px',
                     fontFamily: 'var(--font-display)',
                   }}>
                     {appt.customerName}
                   </div>
-                  <div style={{ 
-                    fontSize: '14px', 
+                  <div style={{
+                    fontSize: '14px',
                     color: THEME.textLight,
                     fontFamily: 'var(--font-body)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
                   }}>
-                    {formatDate(appt.date)}
+                    <span>📅 {formatDate(appt.date)}</span>
+                    {appt.time && <span>🕐 {appt.time}</span>}
+                    {appt.duration && <span>⏱️ {appt.duration} min</span>}
                   </div>
+                  {appt.status && (
+                    <div style={{ marginTop: '6px' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        background: APPOINTMENT_STATUS.find(s => s.id === appt.status)?.color || THEME.primary,
+                        color: THEME.white,
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}>
+                        {APPOINTMENT_STATUS.find(s => s.id === appt.status)?.label || appt.status}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => onDelete(appt.id)}
