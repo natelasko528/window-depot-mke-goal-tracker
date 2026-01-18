@@ -266,8 +266,8 @@ export default function WindowDepotTracker() {
       rateLimit: 15,
       voiceChatEnabled: true,
       voiceChatSettings: {
-        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+        startOfSpeechSensitivity: 'START_SENSITIVITY_UNSPECIFIED',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_UNSPECIFIED',
         silenceDurationMs: 500,
         prefixPaddingMs: 100,
       },
@@ -351,8 +351,8 @@ export default function WindowDepotTracker() {
             ai: {
               ...savedSettings.ai,
               voiceChatSettings: {
-                startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-                endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+                startOfSpeechSensitivity: 'START_SENSITIVITY_UNSPECIFIED',
+                endOfSpeechSensitivity: 'END_SENSITIVITY_UNSPECIFIED',
                 silenceDurationMs: 500,
                 prefixPaddingMs: 100,
                 ...savedSettings.ai?.voiceChatSettings,
@@ -3774,8 +3774,8 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings 
         model: appSettings?.ai?.voiceModel || 'gemini-2.5-flash-native-audio-preview-12-2025',
         voice: appSettings?.ai?.voiceName || 'Puck',
         voiceChatSettings: appSettings?.ai?.voiceChatSettings || {
-          startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-          endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+          startOfSpeechSensitivity: 'START_SENSITIVITY_UNSPECIFIED',
+          endOfSpeechSensitivity: 'END_SENSITIVITY_UNSPECIFIED',
           silenceDurationMs: 500,
           prefixPaddingMs: 100,
         },
@@ -5300,12 +5300,12 @@ function SettingsPage({ settings, onSaveSettings }) {
                 Start of Speech Sensitivity
               </label>
               <select
-                value={localSettings.ai.voiceChatSettings?.startOfSpeechSensitivity || 'START_SENSITIVITY_LOW'}
+                value={localSettings.ai.voiceChatSettings?.startOfSpeechSensitivity || 'START_SENSITIVITY_UNSPECIFIED'}
                 onChange={(e) => handleVoiceChatSettingChange('startOfSpeechSensitivity', e.target.value)}
                 style={selectStyle}
               >
+                <option value="START_SENSITIVITY_UNSPECIFIED">Default - Balanced detection</option>
                 <option value="START_SENSITIVITY_LOW">Low - More tolerant, needs clear speech</option>
-                <option value="START_SENSITIVITY_MEDIUM">Medium - Balanced detection</option>
                 <option value="START_SENSITIVITY_HIGH">High - Detects soft speech easily</option>
               </select>
               <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
@@ -5319,12 +5319,12 @@ function SettingsPage({ settings, onSaveSettings }) {
                 End of Speech Sensitivity
               </label>
               <select
-                value={localSettings.ai.voiceChatSettings?.endOfSpeechSensitivity || 'END_SENSITIVITY_LOW'}
+                value={localSettings.ai.voiceChatSettings?.endOfSpeechSensitivity || 'END_SENSITIVITY_UNSPECIFIED'}
                 onChange={(e) => handleVoiceChatSettingChange('endOfSpeechSensitivity', e.target.value)}
                 style={selectStyle}
               >
+                <option value="END_SENSITIVITY_UNSPECIFIED">Default - Balanced detection</option>
                 <option value="END_SENSITIVITY_LOW">Low - Waits longer before ending turn</option>
-                <option value="END_SENSITIVITY_MEDIUM">Medium - Balanced detection</option>
                 <option value="END_SENSITIVITY_HIGH">High - Ends turn quickly after pause</option>
               </select>
               <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>

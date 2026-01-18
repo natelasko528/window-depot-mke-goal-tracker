@@ -253,8 +253,8 @@ class VoiceChatSession {
     this.onAudioLevel = options.onAudioLevel || (() => {});
     // Voice chat settings for VAD and transcription
     this.voiceChatSettings = options.voiceChatSettings || {
-      startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-      endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+      startOfSpeechSensitivity: 'START_SENSITIVITY_UNSPECIFIED',
+      endOfSpeechSensitivity: 'END_SENSITIVITY_UNSPECIFIED',
       silenceDurationMs: 500,
       prefixPaddingMs: 100,
     };
@@ -330,8 +330,8 @@ class VoiceChatSession {
               realtimeInputConfig: {
                 automaticActivityDetection: {
                   disabled: false,
-                  startOfSpeechSensitivity: this.voiceChatSettings.startOfSpeechSensitivity || 'START_SENSITIVITY_LOW',
-                  endOfSpeechSensitivity: this.voiceChatSettings.endOfSpeechSensitivity || 'END_SENSITIVITY_LOW',
+                  startOfSpeechSensitivity: this.voiceChatSettings.startOfSpeechSensitivity || 'START_SENSITIVITY_UNSPECIFIED',
+                  endOfSpeechSensitivity: this.voiceChatSettings.endOfSpeechSensitivity || 'END_SENSITIVITY_UNSPECIFIED',
                   silenceDurationMs: this.voiceChatSettings.silenceDurationMs || 500,
                   prefixPaddingMs: this.voiceChatSettings.prefixPaddingMs || 100,
                 },
