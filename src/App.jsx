@@ -9025,7 +9025,8 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       // Process callback - handleZoomOAuthCallback will create manager if needed
       handleZoomOAuthCallback(code, state);
     }
-  }, []); // Run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount to check for OAuth callback in URL
 
   const handleValidateApiKey = async () => {
     const apiKey = localSettings.ai.apiKey;
