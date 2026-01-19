@@ -28,8 +28,24 @@ Reference implementations and examples:
 
 ## Quick Links
 
+- **[CONTEXT.md](../CONTEXT.md)** - Living context document (single source of truth for app state, architecture, and issues)
+- **[RIPPLE_INDEX.md](../RIPPLE_INDEX.md)** - Navigation index for large files (especially App.jsx)
 - [PROJECT_RULES.md](../PROJECT_RULES.md) - Project-specific rules and quick reference
 - [.cursor/rules/cursor-skill.mdc](../.cursor/rules/cursor-skill.mdc) - Comprehensive agent skill file
+
+## RIPPLE Context Strategy
+
+The project uses **RIPPLE Context Strategy** for managing large files and maintaining comprehensive context:
+
+- **CONTEXT.md**: Complete living context document containing all app knowledge (dependencies, schema, patterns, API docs, etc.)
+- **RIPPLE_INDEX.md**: Searchable index for navigating large files like `src/App.jsx` (10,759 lines)
+
+**Usage:**
+- Before starting work, check `CONTEXT.md` for current app state and known issues
+- For large files, use `RIPPLE_INDEX.md` to find exact line numbers for components, functions, and patterns
+- Always update `CONTEXT.md` after significant changes to the codebase
+
+See `ULTRATHINK_AGENT_SELF_IMPROVEMENT_ANALYSIS.md` for detailed explanation of RIPPLE strategy.
 
 ## Documentation Standards
 

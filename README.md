@@ -91,3 +91,20 @@ Proprietary - Window Depot Milwaukee
 ## Version
 
 1.0.0 - Production Release
+
+## White-Label Multi-Tenant Architecture
+
+This application is being prepared for white-label SaaS deployment. Comprehensive documentation for the multi-tenant architecture is available in:
+
+- **[White-Label Documentation](./docs/white-labeling/README.md)**: Complete guide to the multi-tenant architecture
+- **[PRD: White-Label Architecture](./tasks/prd-white-labeling-architecture.md)**: Product requirements document
+- **[Architecture Overview](./docs/white-labeling/architecture-overview.md)**: Design decisions and patterns
+- **[Implementation Guide](./docs/white-labeling/implementation-guide.md)**: Step-by-step implementation instructions
+- **[Best Practices](./docs/white-labeling/best-practices.md)**: Security, performance, and maintenance guidelines
+
+The white-label architecture enables:
+- Multi-tenant data isolation
+- Configurable goal categories, products, and statuses
+- Custom branding per tenant (logo, colors, company name)
+- Subdomain-based tenant routing
+- Self-service tenant onboarding

@@ -8400,6 +8400,35 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState(null);
   const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
+  
+  // Integration state - MUST be declared before useEffect hooks that use them
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [jotformStatus, setJotformStatus] = useState({ connected: false });
+  const [marketsharpStatus, setMarketsharpStatus] = useState({ connected: false });
+  const [gohighlevelStatus, setGoHighLevelStatus] = useState({ connected: false });
+  const [zoomStatus, setZoomStatus] = useState({ connected: false });
+  const [jotformApiKey, setJotformApiKey] = useState('');
+  const [showJotformKey, setShowJotformKey] = useState(false);
+  const [marketsharpApiKey, setMarketsharpApiKey] = useState('');
+  const [marketsharpCompanyId, setMarketsharpCompanyId] = useState('');
+  const [showMarketsharpKey, setShowMarketsharpKey] = useState(false);
+  const [gohighlevelApiKey, setGoHighLevelApiKey] = useState('');
+  const [gohighlevelLocationId, setGoHighLevelLocationId] = useState('');
+  const [showGoHighLevelKey, setShowGoHighLevelKey] = useState(false);
+  const [isConnectingJotform, setIsConnectingJotform] = useState(false);
+  const [isConnectingMarketsharp, setIsConnectingMarketsharp] = useState(false);
+  const [isConnectingGoHighLevel, setIsConnectingGoHighLevel] = useState(false);
+  const [isConnectingZoom, setIsConnectingZoom] = useState(false);
+  const [jotformSubmissions, setJotformSubmissions] = useState([]);
+  const [marketsharpData, setMarketsharpData] = useState({ leads: [], contacts: [] });
+  const [gohighlevelData, setGoHighLevelData] = useState({ contacts: [], opportunities: [], appointments: [] });
+  const [zoomMeetings, setZoomMeetings] = useState([]);
+  const [integrationManager, setIntegrationManager] = useState(null);
+  const [zoomClientId, setZoomClientId] = useState('');
+  const [zoomClientSecret, setZoomClientSecret] = useState('');
+  const [zoomRedirectUri, setZoomRedirectUri] = useState('');
+  const [showZoomClientSecret, setShowZoomClientSecret] = useState(false);
 
   // Update local settings when props change
   useEffect(() => {
@@ -8569,35 +8598,6 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
     }));
   };
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  
-  // Integration state
-  const [jotformStatus, setJotformStatus] = useState({ connected: false });
-  const [marketsharpStatus, setMarketsharpStatus] = useState({ connected: false });
-  const [gohighlevelStatus, setGoHighLevelStatus] = useState({ connected: false });
-  const [zoomStatus, setZoomStatus] = useState({ connected: false });
-  const [jotformApiKey, setJotformApiKey] = useState('');
-  const [showJotformKey, setShowJotformKey] = useState(false);
-  const [marketsharpApiKey, setMarketsharpApiKey] = useState('');
-  const [marketsharpCompanyId, setMarketsharpCompanyId] = useState('');
-  const [showMarketsharpKey, setShowMarketsharpKey] = useState(false);
-  const [gohighlevelApiKey, setGoHighLevelApiKey] = useState('');
-  const [gohighlevelLocationId, setGoHighLevelLocationId] = useState('');
-  const [showGoHighLevelKey, setShowGoHighLevelKey] = useState(false);
-  const [isConnectingJotform, setIsConnectingJotform] = useState(false);
-  const [isConnectingMarketsharp, setIsConnectingMarketsharp] = useState(false);
-  const [isConnectingGoHighLevel, setIsConnectingGoHighLevel] = useState(false);
-  const [isConnectingZoom, setIsConnectingZoom] = useState(false);
-  const [jotformSubmissions, setJotformSubmissions] = useState([]);
-  const [marketsharpData, setMarketsharpData] = useState({ leads: [], contacts: [] });
-  const [gohighlevelData, setGoHighLevelData] = useState({ contacts: [], opportunities: [], appointments: [] });
-  const [zoomMeetings, setZoomMeetings] = useState([]);
-  const [integrationManager, setIntegrationManager] = useState(null);
-  const [zoomClientId, setZoomClientId] = useState('');
-  const [zoomClientSecret, setZoomClientSecret] = useState('');
-  const [zoomRedirectUri, setZoomRedirectUri] = useState('');
-  const [showZoomClientSecret, setShowZoomClientSecret] = useState(false);
 
   const exportUserData = () => {
     try {

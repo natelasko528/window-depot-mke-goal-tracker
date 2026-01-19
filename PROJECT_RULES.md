@@ -247,6 +247,11 @@ Comprehensive documentation is available in the `docs/` folder:
 
 **Main Documentation Index**: [`docs/README.md`](./docs/README.md)
 
+### Living Context Documents
+- **[CONTEXT.md](./CONTEXT.md)** - Single source of truth for app state, architecture, known issues, dependencies, schema, patterns, and API documentation
+- **[RIPPLE_INDEX.md](./RIPPLE_INDEX.md)** - Navigation index for large files (especially App.jsx with 10,759 lines)
+- **Usage:** Always check CONTEXT.md first before starting work. Use RIPPLE_INDEX.md to navigate large files efficiently.
+
 ## Quick Command Reference
 
 ### ULTRATHINK Protocol
