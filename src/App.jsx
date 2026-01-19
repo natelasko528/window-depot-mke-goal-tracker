@@ -168,9 +168,9 @@ const VALIDATIONS = {
   
   date: (dateString) => {
     if (!dateString) return null; // Optional
-    const date = new Date(dateString);
+    const date = new Date(dateString + 'T00:00:00'); // Add time to avoid timezone issues
     if (isNaN(date.getTime())) return 'Invalid date';
-    if (date > new Date()) return 'Date cannot be in the future';
+    // Allow future dates for appointments
     const minDate = new Date('2020-01-01');
     if (date < minDate) return 'Date too far in the past';
     return null;
@@ -395,7 +395,7 @@ export default function WindowDepotTracker() {
       achievementAlerts: true,
     },
   });
-  const [themeMode, setThemeMode] = useState('system');
+  const [themeMode, setThemeMode] = useState('light');
   const [dailySnapshots, setDailySnapshots] = useState({});
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -441,7 +441,7 @@ export default function WindowDepotTracker() {
           storage.get('currentUser', null),
           storage.get('rememberUser', false),
           storage.get('appSettings', null),
-          storage.get('themeMode', 'system'),
+          storage.get('themeMode', 'light'),
           storage.get('dailySnapshots', {}),
         ];
 
@@ -1132,6 +1132,24 @@ export default function WindowDepotTracker() {
     }
   }, [activeView, currentUser]);
 
+  // Refresh feed when navigating to feed view
+  useEffect(() => {
+    if (activeView === 'feed' && isInitialized && isOnline && isSupabaseConfigured) {
+      const refreshFeed = async () => {
+        try {
+          const { syncFeedFromSupabase } = await import('./lib/sync');
+          const updatedFeed = await syncFeedFromSupabase();
+          if (updatedFeed) {
+            setFeed(updatedFeed);
+          }
+        } catch (error) {
+          console.error('Failed to refresh feed:', error);
+        }
+      };
+      refreshFeed();
+    }
+  }, [activeView, isInitialized, isOnline, isSupabaseConfigured]);
+
   // ========================================
   // ENSURE DAILY SNAPSHOTS
   // ========================================
@@ -1572,7 +1590,11 @@ export default function WindowDepotTracker() {
     }
     
     try {
-      const appointmentDate = appointmentData.date || getToday();
+      // Ensure date is in YYYY-MM-DD format to avoid timezone issues
+      let appointmentDate = appointmentData.date || getToday();
+      // Parse and reformat to ensure consistent date handling
+      const dateObj = new Date(appointmentDate + 'T12:00:00'); // Use noon to avoid timezone shifts
+      appointmentDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
       const appointmentDataForDB = {
         user_id: currentUser.id,
         customer_name: sanitizeInput(appointmentData.customerName),
@@ -2384,11 +2406,46 @@ export default function WindowDepotTracker() {
           }}>
             Window Depot Milwaukee
           </h1>
-          {isOnline ? (
-            <Wifi size={20} style={{ opacity: 0.8 }} />
-          ) : (
-            <WifiOff size={20} />
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Theme Toggle */}
+            <button
+              onClick={() => {
+                const newMode = themeMode === 'light' ? 'dark' : 'light';
+                setThemeMode(newMode);
+                storage.set('themeMode', newMode);
+              }}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.25)',
+                border: 'none',
+                color: currentTheme.white,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s ease',
+                fontSize: '20px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.35)';
+                e.currentTarget.style.transform = 'scale(1.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              title={themeMode === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {themeMode === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            {isOnline ? (
+              <Wifi size={20} style={{ opacity: 0.8 }} />
+            ) : (
+              <WifiOff size={20} />
+            )}
+          </div>
         </div>
         <div style={{ 
           fontSize: '15px', 
