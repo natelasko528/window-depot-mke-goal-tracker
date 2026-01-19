@@ -2314,13 +2314,62 @@ export default function WindowDepotTracker() {
   // ========================================
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: currentTheme.gradients.background,
-      fontFamily: 'var(--font-body)',
-      paddingBottom: '80px',
-      id: 'main-content',
-    }}>
+    <>
+      {/* Global Responsive Styles */}
+      <style>{`
+        /* Prevent horizontal overflow */
+        html, body, #root {
+          width: 100%;
+          max-width: 100vw;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        
+        * {
+          box-sizing: border-box;
+        }
+        
+        /* Responsive font sizes */
+        @media (max-width: 480px) {
+          h1 { font-size: clamp(20px, 6vw, 28px) !important; }
+          h2 { font-size: clamp(18px, 5vw, 24px) !important; }
+          h3 { font-size: clamp(16px, 4vw, 20px) !important; }
+        }
+        
+        /* Fix for charts and wide content */
+        @media (max-width: 768px) {
+          .recharts-wrapper,
+          .recharts-surface {
+            max-width: 100% !important;
+            overflow: hidden !important;
+          }
+        }
+        
+        /* Ensure all fixed elements respect viewport */
+        [style*="position: fixed"] {
+          max-width: 100vw !important;
+        }
+        
+        /* Responsive tables and grids */
+        @media (max-width: 768px) {
+          table {
+            display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+        }
+      `}</style>
+      <div style={{
+        minHeight: '100vh',
+        background: currentTheme.gradients.background,
+        fontFamily: 'var(--font-body)',
+        paddingBottom: 'clamp(70px, 12vw, 80px)',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
+        id: 'main-content',
+      }}>
       {/* Offline Banner */}
       {!isOnline && (
         <div style={{
@@ -2343,19 +2392,22 @@ export default function WindowDepotTracker() {
       {toast && (
         <div style={{
           position: 'fixed',
-          top: '20px',
-          right: '20px',
+          top: 'clamp(12px, 3vh, 20px)',
+          right: 'clamp(12px, 3vw, 20px)',
+          left: 'clamp(12px, 3vw, auto)',
           zIndex: 10000,
           background: toast.type === 'success' ? currentTheme.success :
                      toast.type === 'error' ? currentTheme.danger :
                      toast.type === 'warning' ? currentTheme.warning :
                      currentTheme.primary,
           color: currentTheme.white,
-          padding: '16px 24px',
+          padding: 'clamp(12px, 3vw, 16px) clamp(16px, 4vw, 24px)',
           borderRadius: '8px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          maxWidth: '90vw',
+          maxWidth: 'calc(100vw - 24px)',
+          width: 'auto',
           animation: 'slideIn 0.3s ease-out',
+          boxSizing: 'border-box',
         }}>
           <style>{`
             @keyframes slideIn {
@@ -2417,16 +2469,27 @@ export default function WindowDepotTracker() {
       <div style={{
         background: currentTheme.gradients.primary,
         color: currentTheme.white,
-        padding: '24px 20px',
+        padding: 'clamp(16px, 4vw, 24px) clamp(12px, 3vw, 20px)',
         boxShadow: currentTheme.shadows.layered,
+        width: '100%',
+        maxWidth: '100vw',
+        boxSizing: 'border-box',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '8px',
+          flexWrap: 'wrap',
+          gap: '8px',
+        }}>
           <h1 style={{ 
             margin: 0, 
-            fontSize: '28px', 
+            fontSize: 'clamp(20px, 5vw, 28px)', 
             fontWeight: '700',
             fontFamily: 'var(--font-display)',
             letterSpacing: '-0.5px',
+            lineHeight: '1.2',
           }}>
             Window Depot Milwaukee
           </h1>
@@ -2510,7 +2573,13 @@ export default function WindowDepotTracker() {
       </div>
       
       {/* Main Content */}
-      <div style={{ padding: '20px' }}>
+      <div style={{ 
+        padding: 'clamp(12px, 4vw, 20px)',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
+        boxSizing: 'border-box'
+      }}>
         {activeView === 'dashboard' && (
           <div style={{ display: 'grid', gap: '20px' }}>
             <Dashboard
@@ -2666,25 +2735,30 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '20px',
+      padding: 'clamp(12px, 4vw, 20px)',
       fontFamily: 'var(--font-body)',
+      width: '100%',
+      maxWidth: '100vw',
+      overflowX: 'hidden',
+      boxSizing: 'border-box',
     }}>
       <div style={{
         background: THEME.white,
         borderRadius: '20px',
-        padding: '48px',
-        maxWidth: '420px',
+        padding: 'clamp(24px, 6vw, 48px)',
+        maxWidth: 'min(420px, calc(100vw - 24px))',
         width: '100%',
         boxShadow: THEME.shadows.xl,
         border: `1px solid ${THEME.border}`,
+        boxSizing: 'border-box',
       }}>
         <div style={{
           textAlign: 'center',
           marginBottom: '32px',
         }}>
           <div style={{
-            width: '90px',
-            height: '90px',
+            width: 'clamp(70px, 15vw, 90px)',
+            height: 'clamp(70px, 15vw, 90px)',
             background: THEME.gradients.primary,
             borderRadius: '50%',
             display: 'flex',
@@ -2697,17 +2771,18 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
           </div>
           <h1 style={{
             margin: '0 0 8px 0',
-            fontSize: '32px',
+            fontSize: 'clamp(24px, 6vw, 32px)',
             fontWeight: '700',
             color: THEME.text,
             fontFamily: 'var(--font-display)',
             letterSpacing: '-0.5px',
+            lineHeight: '1.2',
           }}>
             Window Depot
           </h1>
           <p style={{
             margin: 0,
-            fontSize: '17px',
+            fontSize: 'clamp(15px, 4vw, 17px)',
             color: THEME.textLight,
             fontFamily: 'var(--font-body)',
             fontWeight: '500',
@@ -3137,10 +3212,11 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
     <div>
       <h2 style={{
         margin: '0 0 16px 0',
-        fontSize: '24px',
+        fontSize: 'clamp(20px, 5vw, 24px)',
         fontWeight: '700',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
+        lineHeight: '1.2',
       }}>
         Today's Progress
       </h2>
@@ -3149,11 +3225,14 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       <div style={{
         background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
         borderRadius: '12px',
-        padding: '16px 20px',
+        padding: 'clamp(12px, 3vw, 16px) clamp(16px, 4vw, 20px)',
         marginBottom: '20px',
         boxShadow: THEME.shadows.md,
         color: THEME.white,
         textAlign: 'center',
+        width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}>
         <div style={{
           fontSize: '11px',
@@ -3206,12 +3285,15 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
               style={{
                 background: THEME.white,
                 borderRadius: '16px',
-                padding: '24px',
+                padding: 'clamp(16px, 4vw, 24px)',
                 boxShadow: isGoalReached ? THEME.shadows.layered : THEME.shadows.md,
                 border: isGoalReached ? `2px solid ${category.color}` : 'none',
                 transform: isCelebrating ? 'scale(1.02)' : 'scale(1)',
                 transition: 'all 0.3s ease',
                 animation: isCelebrating ? 'bounce 0.6s ease-in-out' : 'none',
+                width: '100%',
+                maxWidth: '100%',
+                boxSizing: 'border-box',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
@@ -3291,20 +3373,21 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   }}
                   style={{
                     flex: 1,
-                    padding: '18px',
+                    padding: 'clamp(12px, 3vw, 18px)',
                     background: count === 0 ? THEME.border : THEME.gradients.danger,
                     border: 'none',
                     borderRadius: '10px',
                     color: THEME.white,
-                    fontSize: '24px',
+                    fontSize: 'clamp(20px, 5vw, 24px)',
                     fontWeight: '700',
                     cursor: count === 0 ? 'not-allowed' : 'pointer',
-                    minHeight: '72px',
+                    minHeight: 'clamp(60px, 12vw, 72px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     transition: 'all 0.2s ease',
                     boxShadow: count === 0 ? 'none' : THEME.shadows.md,
+                    boxSizing: 'border-box',
                   }}
                 >
                   <Minus size={28} />
@@ -3319,12 +3402,12 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   }}
                   style={{
                     flex: 1,
-                    padding: '18px',
+                    padding: 'clamp(12px, 3vw, 18px)',
                     background: gradient,
                     border: 'none',
                     borderRadius: '10px',
                     color: THEME.white,
-                    fontSize: '24px',
+                    fontSize: 'clamp(20px, 5vw, 24px)',
                     fontWeight: '700',
                     cursor: 'pointer',
                     minHeight: '72px',
@@ -10317,6 +10400,9 @@ function BottomNav({ activeView, onViewChange, isManager, theme }) {
         zIndex: 1000,
         overflowX: 'auto',
         WebkitOverflowScrolling: 'touch',
+        width: '100%',
+        maxWidth: '100vw',
+        boxSizing: 'border-box',
       }}>
         {visibleItems.map(item => {
           const Icon = item.icon;
