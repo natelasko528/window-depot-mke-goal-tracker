@@ -151,13 +151,20 @@ ZOOM_WEBHOOK_SECRET=your-webhook-secret-token
 ### Step 7: Connect in Application
 
 1. Open the Window Depot Daily Goal Tracker application
-2. Navigate to **Settings** > **Integrations**
+2. Navigate to **Settings** > **Integrations** tab
 3. Find the **Zoom Workplace Integration** section
-4. Click **Connect with Zoom**
-5. You'll be redirected to Zoom for authorization
-6. Authorize the application
-7. You'll be redirected back to the application
-8. The connection will be established automatically
+4. Enter your OAuth credentials:
+   - **Client ID**: Paste the Client ID from Step 4
+   - **Client Secret**: Paste the Client Secret from Step 4
+   - **Redirect URI**: Enter your redirect URI (default: `https://your-domain.com/oauth/zoom/callback`)
+     - **Important**: This must match exactly the redirect URI configured in your Zoom App settings (Step 2)
+     - For local development, you may use `http://localhost:3000/oauth/zoom/callback` (ensure it's configured in Zoom App)
+5. Click **Connect with Zoom**
+6. You'll be redirected to Zoom's authorization page
+7. Review the requested permissions and click **Authorize**
+8. You'll be redirected back to the application
+9. The connection will be established automatically and you'll see a success message
+10. OAuth credentials are automatically saved for future use
 
 ### Step 8: Sync Data
 
@@ -192,15 +199,37 @@ ZOOM_WEBHOOK_SECRET=your-webhook-secret-token
 
 **Issue: OAuth redirect fails**
 
-- Verify redirect URI matches exactly in Zoom app settings
-- Check that redirect URI is using HTTPS (required)
+- Verify redirect URI matches exactly in Zoom app settings (including protocol, domain, path, trailing slashes)
+- Check that redirect URI is using HTTPS (required for production)
 - Ensure app is published/approved if required
+- Verify redirect URI is added to allowed redirect URIs list in Zoom App settings
+
+**Issue: "Invalid redirect URI" error during connection**
+
+- Ensure the redirect URI entered in the application matches exactly the one in Zoom App settings
+- Check for typos, extra spaces, or missing trailing slashes
+- Verify you're using the correct protocol (HTTPS for production, HTTP for localhost)
+- The redirect URI field in the app auto-populates with a default - verify this matches your Zoom App configuration
+
+**Issue: "OAuth state expired" error**
+
+- OAuth state parameters expire after 10 minutes
+- Try connecting again - ensure you complete the authorization process promptly
+- Clear browser storage and try again if issue persists
 
 **Issue: "Invalid or expired token" error**
 
 - Zoom access tokens expire after ~60 minutes
-- Implement token refresh mechanism
-- Store refresh tokens securely for long-term access
+- The application automatically uses refresh tokens when available
+- If refresh fails, you may need to re-authorize the application
+- Check that client ID and secret haven't changed in Zoom App settings
+
+**Issue: Authorization callback not detected**
+
+- Ensure the app is running when you're redirected back from Zoom
+- Check browser console for JavaScript errors
+- Verify URL contains `?code=` and `?state=` parameters after redirect
+- Try clearing browser cache and reconnecting
 
 **Issue: Webhook signature verification fails**
 

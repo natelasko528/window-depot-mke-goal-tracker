@@ -398,9 +398,187 @@ The Zoom integration is implemented in:
 - **UI**: `src/App.jsx` - Settings > Integrations tab
 - **Webhook Handler**: `supabase/functions/zoom-webhook/index.ts`
 
+## OAuth Flow Implementation Details
+
+### PKCE Flow for Browser-Based Apps
+
+This application implements OAuth 2.0 with PKCE (Proof Key for Code Exchange) as required by Zoom for public clients (browser-based applications). The flow follows these steps:
+
+#### 1. Authorization Request
+
+```javascript
+// Generate code verifier (128 characters, base64url encoded)
+const codeVerifier = generateCodeVerifier();
+
+// Generate code challenge (SHA256 hash of verifier, base64url encoded)
+const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+// Generate state parameter for CSRF protection
+const state = generateRandomString(32);
+
+// Build authorization URL
+const authUrl = `https://zoom.us/oauth/authorize?` +
+  `response_type=code&` +
+  `client_id=${clientId}&` +
+  `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+  `code_challenge=${codeChallenge}&` +
+  `code_challenge_method=S256&` +
+  `state=${state}&` +
+  `scope=${encodeURIComponent('meeting:write meeting:read user:read')}`;
+```
+
+#### 2. State Storage
+
+The application stores the OAuth state in IndexedDB for callback verification:
+
+```javascript
+await storage.set(`zoom_oauth_state_${state}`, {
+  clientId,
+  clientSecret,
+  redirectUri,
+  codeVerifier,  // Required for token exchange
+  timestamp: Date.now(),  // For expiration checking (10 minutes)
+});
+```
+
+**Security Note**: The code verifier must be stored securely and matched with the state parameter during callback processing.
+
+#### 3. Callback Handling
+
+The application detects OAuth callbacks via URL parameters:
+
+```javascript
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  const state = urlParams.get('state');
+  const error = urlParams.get('error');
+
+  if (code && state) {
+    handleZoomOAuthCallback(code, state);
+  } else if (error) {
+    // Handle error (user denied, invalid request, etc.)
+  }
+}, []);
+```
+
+#### 4. Token Exchange
+
+After receiving the authorization code, exchange it for tokens:
+
+```javascript
+const tokenResponse = await exchangeZoomCode(
+  code,
+  redirectUri,      // Must match authorization request
+  codeVerifier,     // Must match code_challenge from authorization
+  clientId,
+  clientSecret
+);
+
+// Response contains:
+// {
+//   access_token: string,
+//   refresh_token: string,
+//   expires_in: number,
+//   token_type: "Bearer"
+// }
+```
+
+#### 5. Token Storage and Connection
+
+Tokens are encrypted and stored securely:
+
+```javascript
+await integrationManager.connectZoom(
+  tokenResponse.access_token,
+  tokenResponse.refresh_token
+);
+```
+
+### Callback Processing Pattern
+
+Since this is a single-page application without routing, callback handling uses URL parameter detection:
+
+1. **URL Detection**: Check `window.location.search` for `?code=` and `?state=` parameters
+2. **State Verification**: Verify stored state matches and hasn't expired (10-minute window)
+3. **Token Exchange**: Use stored code verifier to exchange authorization code
+4. **URL Cleanup**: Remove OAuth parameters from URL using `window.history.replaceState()`
+
+### Error Handling
+
+Common OAuth errors and handling:
+
+- **`invalid_grant`**: Authorization code expired or already used - user must re-authorize
+- **`invalid_client`**: Invalid client ID or secret - check credentials
+- **`invalid_redirect_uri`**: Redirect URI mismatch - verify app settings
+- **`access_denied`**: User denied authorization
+- **State expiration**: OAuth state expired (>10 minutes) - user must restart flow
+
+### Security Best Practices
+
+1. **State Parameter**: Always use a cryptographically random state parameter for CSRF protection
+2. **Code Verifier**: Generate 128-character code verifier using secure random number generator
+3. **State Expiration**: Implement 10-minute expiration window for OAuth state
+4. **URL Cleanup**: Remove OAuth parameters from URL after processing to prevent replay attacks
+5. **Token Storage**: Encrypt tokens before storing in IndexedDB
+6. **HTTPS Only**: Redirect URI must use HTTPS in production
+7. **Client Secret**: Never expose client secret in client-side code (use environment variables or server-side proxy)
+
+## Troubleshooting Common OAuth Issues
+
+### Issue: "Invalid redirect URI" Error
+
+**Symptoms**: Error message indicates redirect URI mismatch
+
+**Solutions**:
+- Verify redirect URI in Zoom App settings matches exactly (including trailing slashes, protocol, port)
+- Ensure redirect URI is using HTTPS (required for production)
+- Check that redirect URI is added to allowed redirect URIs in Zoom App settings
+
+### Issue: "OAuth state expired" Error
+
+**Symptoms**: Application shows "OAuth state expired" after redirect
+
+**Solutions**:
+- Ensure user completes authorization within 10 minutes
+- Check that IndexedDB storage is working (browser permissions)
+- Verify state parameter is being stored and retrieved correctly
+
+### Issue: Authorization Code Exchange Fails
+
+**Symptoms**: Error during token exchange after successful authorization
+
+**Solutions**:
+- Verify code verifier matches code challenge from authorization request
+- Ensure authorization code hasn't expired (codes expire quickly)
+- Check that redirect URI matches exactly between authorization and token exchange
+- Verify client ID and secret are correct
+
+### Issue: Callback Not Detected
+
+**Symptoms**: App doesn't process OAuth callback after redirect
+
+**Solutions**:
+- Verify callback handler useEffect is running on component mount
+- Check browser console for JavaScript errors
+- Ensure URL parameters (`?code=` and `?state=`) are present in callback URL
+- Verify app isn't clearing URL parameters before callback handler runs
+
+### Issue: Token Refresh Fails
+
+**Symptoms**: Meeting API calls fail with "Invalid or expired token"
+
+**Solutions**:
+- Implement automatic token refresh before API calls
+- Verify refresh token is stored and not expired
+- Check that client credentials haven't changed
+- Ensure refresh token hasn't been revoked in Zoom App settings
+
 ## Resources
 
 - [Zoom Developers Documentation](https://developers.zoom.us/docs/api/)
 - [OAuth 2.0 Authorization](https://developers.zoom.us/docs/integrations/oauth/)
+- [PKCE Flow Documentation](https://developers.zoom.us/docs/integrations/oauth/#pkce)
 - [Webhooks Documentation](https://developers.zoom.us/docs/api/webhooks/)
 - [Meeting API Reference](https://developers.zoom.us/docs/api/rest/reference/zoom-api/ma/)
+- [Zoom Rivet JavaScript SDK](https://github.com/zoom/rivet-javascript) - Server-side Zoom integration toolkit

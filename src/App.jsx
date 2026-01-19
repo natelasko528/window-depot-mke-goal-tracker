@@ -58,6 +58,10 @@ import {
   keyboardNav,
   createSkipLink
 } from './lib/accessibility';
+import {
+  generateZoomAuthUrl,
+  exchangeZoomCode
+} from './lib/oauth';
 
 // ========================================
 // CONSTANTS
@@ -8359,6 +8363,34 @@ function Reports({ users, dailyLogs, appointments, theme }) {
 
 function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, currentUser, users, setUsers, dailyLogs, appointments, feed, setDailyLogs, setAppointments, setFeed, setCurrentUser, showToast, isSupabaseConfigured, isOnline }) {
   const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
+  
+  // Access storage via window.storage (initialized in storage.js)
+  const storage = window.storage || {
+    async get(key, defaultValue) {
+      try {
+        const item = localStorage.getItem(key);
+        return item ? JSON.parse(item) : defaultValue;
+      } catch {
+        return defaultValue;
+      }
+    },
+    async set(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async remove(key) {
+      try {
+        localStorage.removeItem(key);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
   const [localSettings, setLocalSettings] = useState({ ...settings, themeMode: currentThemeMode });
   const [showApiKey, setShowApiKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -8394,6 +8426,43 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       manager.getZoomMeetings().then(setZoomMeetings).catch(console.error);
     }
   }, [currentUser?.id]);
+
+  // Load Zoom OAuth credentials from storage
+  useEffect(() => {
+    const loadZoomOAuthCredentials = async () => {
+      try {
+        const storedClientId = await storage.get('zoom_oauth_client_id', '');
+        const storedClientSecret = await storage.get('zoom_oauth_client_secret', '');
+        const storedRedirectUri = await storage.get('zoom_oauth_redirect_uri', `${window.location.origin}/oauth/zoom/callback`);
+        
+        setZoomClientId(storedClientId || '');
+        setZoomClientSecret(storedClientSecret || '');
+        setZoomRedirectUri(storedRedirectUri || `${window.location.origin}/oauth/zoom/callback`);
+      } catch (error) {
+        console.error('Failed to load Zoom OAuth credentials:', error);
+      }
+    };
+    
+    loadZoomOAuthCredentials();
+  }, []);
+
+  // Debounced save for Zoom OAuth credentials
+  useEffect(() => {
+    const saveCredentials = async () => {
+      try {
+        if (zoomClientId || zoomClientSecret || zoomRedirectUri) {
+          if (zoomClientId) await storage.set('zoom_oauth_client_id', zoomClientId);
+          if (zoomClientSecret) await storage.set('zoom_oauth_client_secret', zoomClientSecret);
+          if (zoomRedirectUri) await storage.set('zoom_oauth_redirect_uri', zoomRedirectUri);
+        }
+      } catch (error) {
+        console.error('Failed to save Zoom OAuth credentials:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(saveCredentials, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [zoomClientId, zoomClientSecret, zoomRedirectUri]);
 
   // Fetch available models when API key is available
   useEffect(() => {
@@ -8525,6 +8594,10 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
   const [gohighlevelData, setGoHighLevelData] = useState({ contacts: [], opportunities: [], appointments: [] });
   const [zoomMeetings, setZoomMeetings] = useState([]);
   const [integrationManager, setIntegrationManager] = useState(null);
+  const [zoomClientId, setZoomClientId] = useState('');
+  const [zoomClientSecret, setZoomClientSecret] = useState('');
+  const [zoomRedirectUri, setZoomRedirectUri] = useState('');
+  const [showZoomClientSecret, setShowZoomClientSecret] = useState(false);
 
   const exportUserData = () => {
     try {
@@ -8776,18 +8849,66 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
     }
   };
 
+  // Helper function to generate random state string
+  const generateRandomString = (length = 32) => {
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    return btoa(String.fromCharCode.apply(null, array))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+  };
+
   const handleConnectZoom = async () => {
-    // Zoom OAuth flow - redirect to Zoom authorization
-    // TODO: Implement full OAuth flow with redirect handling
-    // For now, show informational message
-    showToast('Zoom OAuth setup required. See documentation for setup instructions.', 'info');
-    
-    // In production, this would:
-    // 1. Generate OAuth URL with PKCE
-    // 2. Redirect user to Zoom for authorization
-    // 3. Handle callback with authorization code
-    // 4. Exchange code for tokens
-    // 5. Store tokens and connect integration
+    // Validate credentials
+    if (!zoomClientId || !zoomClientSecret || !zoomRedirectUri) {
+      showToast('Please enter Client ID, Client Secret, and Redirect URI', 'error');
+      return;
+    }
+
+    // Validate redirect URI format
+    try {
+      new URL(zoomRedirectUri);
+    } catch (error) {
+      showToast('Invalid redirect URI format. Please enter a valid URL.', 'error');
+      return;
+    }
+
+    setIsConnectingZoom(true);
+
+    try {
+      // Generate state parameter for CSRF protection
+      const state = generateRandomString(32);
+
+      // Generate PKCE authorization URL
+      const { url, codeVerifier } = await generateZoomAuthUrl(
+        zoomClientId,
+        zoomRedirectUri,
+        state,
+        ['meeting:write', 'meeting:read', 'user:read']
+      );
+
+      // Store OAuth state for callback handling
+      await storage.set(`zoom_oauth_state_${state}`, {
+        clientId: zoomClientId,
+        clientSecret: zoomClientSecret,
+        redirectUri: zoomRedirectUri,
+        codeVerifier,
+        timestamp: Date.now(),
+      });
+
+      // Save credentials for future use
+      await storage.set('zoom_oauth_client_id', zoomClientId);
+      await storage.set('zoom_oauth_client_secret', zoomClientSecret);
+      await storage.set('zoom_oauth_redirect_uri', zoomRedirectUri);
+
+      // Redirect to Zoom authorization
+      window.location.href = url;
+    } catch (error) {
+      console.error('OAuth initiation error:', error);
+      showToast(`Failed to initiate OAuth: ${error.message}`, 'error');
+      setIsConnectingZoom(false);
+    }
   };
 
   const handleDisconnectZoom = async () => {
@@ -8814,6 +8935,90 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       showToast(`Sync failed: ${error.message}`, 'error');
     }
   };
+
+  // Handle Zoom OAuth callback
+  const handleZoomOAuthCallback = async (code, state) => {
+    try {
+      setIsConnectingZoom(true);
+
+      // Get stored OAuth state
+      const storedState = await storage.get(`zoom_oauth_state_${state}`);
+      if (!storedState) {
+        throw new Error('Invalid or expired OAuth state');
+      }
+
+      // Check state expiration (10 minutes)
+      if (Date.now() - storedState.timestamp > 10 * 60 * 1000) {
+        await storage.remove(`zoom_oauth_state_${state}`);
+        throw new Error('OAuth state expired. Please try connecting again.');
+      }
+
+      // Exchange code for tokens
+      const tokenResponse = await exchangeZoomCode(
+        code,
+        storedState.redirectUri,
+        storedState.codeVerifier,
+        storedState.clientId,
+        storedState.clientSecret
+      );
+
+      // Connect integration using tokens
+      if (!integrationManager) {
+        throw new Error('Integration manager not initialized');
+      }
+
+      await integrationManager.connectZoom(
+        tokenResponse.access_token,
+        tokenResponse.refresh_token
+      );
+
+      // Update UI
+      const status = await manager.getZoomStatus();
+      setZoomStatus(status);
+
+      // Clean up
+      await storage.remove(`zoom_oauth_state_${state}`);
+
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+
+      showToast('Zoom connected successfully!', 'success');
+
+      // Load meetings
+      const meetings = await manager.getZoomMeetings();
+      setZoomMeetings(meetings || []);
+
+    } catch (error) {
+      console.error('OAuth callback error:', error);
+      showToast(`Connection failed: ${error.message}`, 'error');
+
+      // Clean up URL even on error
+      window.history.replaceState({}, '', window.location.pathname);
+    } finally {
+      setIsConnectingZoom(false);
+    }
+  };
+
+  // OAuth callback handler - check for code and state in URL
+  useEffect(() => {
+    // Check if we're returning from Zoom OAuth
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    const error = urlParams.get('error');
+
+    if (error) {
+      showToast(`Zoom authorization failed: ${error}`, 'error');
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    if (code && state) {
+      // Process callback - handleZoomOAuthCallback will create manager if needed
+      handleZoomOAuthCallback(code, state);
+    }
+  }, []); // Run once on mount
 
   const handleValidateApiKey = async () => {
     const apiKey = localSettings.ai.apiKey;
@@ -10645,21 +10850,90 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
 
           {!zoomStatus.connected ? (
             <div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={labelStyle}>
+                  Client ID
+                </label>
+                <input
+                  type="text"
+                  value={zoomClientId}
+                  onChange={(e) => setZoomClientId(e.target.value)}
+                  placeholder="Enter your Zoom OAuth Client ID"
+                  style={inputStyle}
+                />
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Get this from your Zoom App in the Marketplace
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={labelStyle}>
+                  Client Secret
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showZoomClientSecret ? 'text' : 'password'}
+                    value={zoomClientSecret}
+                    onChange={(e) => setZoomClientSecret(e.target.value)}
+                    placeholder="Enter your Zoom OAuth Client Secret"
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowZoomClientSecret(!showZoomClientSecret)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: THEME.textLight,
+                    }}
+                  >
+                    {showZoomClientSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Keep this secret secure
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={labelStyle}>
+                  Redirect URI
+                </label>
+                <input
+                  type="text"
+                  value={zoomRedirectUri}
+                  onChange={(e) => setZoomRedirectUri(e.target.value)}
+                  placeholder={`${window.location.origin}/oauth/zoom/callback`}
+                  style={inputStyle}
+                />
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Must match the redirect URI in your Zoom App settings
+                </p>
+              </div>
+
               <button
                 onClick={handleConnectZoom}
-                disabled={isConnectingZoom}
+                disabled={isConnectingZoom || !zoomClientId || !zoomClientSecret || !zoomRedirectUri}
                 style={{
                   width: '100%',
                   padding: '12px',
-                  background: isConnectingZoom ? THEME.border : THEME.primary,
+                  background: (isConnectingZoom || !zoomClientId || !zoomClientSecret || !zoomRedirectUri) ? THEME.border : THEME.primary,
                   color: THEME.white,
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: '600',
-                  cursor: isConnectingZoom ? 'not-allowed' : 'pointer',
+                  cursor: (isConnectingZoom || !zoomClientId || !zoomClientSecret || !zoomRedirectUri) ? 'not-allowed' : 'pointer',
                 }}
               >
-                {isConnectingZoom ? 'Connecting...' : 'Connect with Zoom'}
+                {isConnectingZoom ? 'Redirecting to Zoom...' : 'Connect with Zoom'}
               </button>
               <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight, textAlign: 'center' }}>
                 OAuth integration - redirects to Zoom for authorization
