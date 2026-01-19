@@ -66,7 +66,7 @@ const processSyncQueue = async () => {
       // Check for PGRST205 error (table not found)
       const isTableNotFound = error?.code === 'PGRST205' || 
                              error?.message?.includes('PGRST205') ||
-                             error?.message?.includes('relation') && error?.message?.includes('does not exist');
+                             (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
       
       if (isTableNotFound) {
         const tableName = operation.table || 'unknown';
