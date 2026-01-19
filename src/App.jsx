@@ -611,6 +611,167 @@ export default function WindowDepotTracker() {
   // ========================================
 
   const currentTheme = useMemo(() => getTheme(themeMode), [themeMode]);
+
+  // ========================================
+  // TOAST NOTIFICATION SYSTEM
+  // ========================================
+  
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // ========================================
+  // TRACKING FUNCTIONS
+  // ========================================
+
+  const handleIncrement = useCallback(async (category) => {
+    if (!currentUser) return;
+    
+    const today = getToday();
+    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
+    const goal = currentUser.goals[category];
+    const newCount = currentCount + 1;
+    
+    // Update local state immediately
+    const updatedLogs = {
+      ...dailyLogs,
+      [today]: {
+        ...dailyLogs[today],
+        [currentUser.id]: {
+          ...dailyLogs[today]?.[currentUser.id],
+          [category]: newCount,
+        },
+      },
+    };
+    
+    setDailyLogs(updatedLogs);
+    await storage.set('dailyLogs', updatedLogs);
+    
+    // Sync to Supabase
+    try {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('daily_logs')
+          .upsert({
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          }, {
+            onConflict: 'user_id,date,category',
+          });
+        
+        if (error) throw error;
+      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'upsert',
+          table: 'daily_logs',
+          conflictKey: 'user_id,date,category',
+          data: {
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to sync daily log:', error);
+    }
+    
+    // Auto-post to feed for reviews and callbacks
+    if (category === 'reviews' || category === 'callbacks') {
+      const messages = {
+        reviews: [
+          `🌟 ${currentUser.name} got a review!`,
+          `⭐ ${currentUser.name} secured another review!`,
+          `✨ ${currentUser.name} is collecting reviews!`,
+        ],
+        callbacks: [
+          `📞 ${currentUser.name} made a callback!`,
+          `☎️ ${currentUser.name} completed a callback!`,
+          `💬 ${currentUser.name} is reaching out!`,
+        ],
+      };
+      
+      const messageList = messages[category];
+      const message = messageList[Math.floor(Math.random() * messageList.length)];
+      
+      // Create post in Supabase
+      try {
+        if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+          const { data: postData, error: postError } = await supabase
+            .from('feed_posts')
+            .insert({
+              user_id: currentUser.id,
+              content: sanitizeInput(message),
+              type: 'auto',
+            })
+            .select(`
+              *,
+              user:users(name)
+            `)
+            .single();
+          
+          if (!postError && postData) {
+            const newPost = {
+              id: postData.id,
+              userId: postData.user_id,
+              userName: postData.user?.name || currentUser.name,
+              content: postData.content,
+              timestamp: new Date(postData.created_at).getTime(),
+              likes: [],
+              comments: [],
+              isAuto: true,
+            };
+            const updatedFeed = [newPost, ...feed];
+            setFeed(updatedFeed);
+            await storage.set('feed', updatedFeed);
+          }
+        } else {
+          // Offline: create local post, queue for sync
+          const tempPostId = `temp_${Date.now()}`;
+          const newPost = {
+            id: tempPostId,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            content: sanitizeInput(message),
+            timestamp: Date.now(),
+            likes: [],
+            comments: [],
+            isAuto: true,
+          };
+          const updatedFeed = [newPost, ...feed];
+          setFeed(updatedFeed);
+          await storage.set('feed', updatedFeed);
+          
+          if (!currentUser.id.startsWith('temp_')) {
+            await queueSyncOperation({
+              type: 'insert',
+              table: 'feed_posts',
+              data: {
+                user_id: currentUser.id,
+                content: sanitizeInput(message),
+                type: 'auto',
+              },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to create feed post:', error);
+      }
+    }
+    
+    // Check for goal completion
+    if (newCount === goal) {
+      setShowCelebration(true);
+      setTimeout(() => setShowCelebration(false), 2000);
+      showToast(`🎉 ${category} goal complete!`, 'success');
+    }
+  }, [currentUser, dailyLogs, showToast, feed]);
+
   // ========================================
   // ONBOARDING CHECK
   // ========================================
@@ -1086,15 +1247,6 @@ export default function WindowDepotTracker() {
 
     return () => clearTimeout(saveTimeout);
   }, [dailySnapshots]);
-
-  // ========================================
-  // TOAST NOTIFICATION SYSTEM
-  // ========================================
-  
-  const showToast = useCallback((message, type = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
   
   // ========================================
   // USER MANAGEMENT
@@ -1327,155 +1479,8 @@ export default function WindowDepotTracker() {
   }, [appSettings, showToast]);
 
   // ========================================
-  // TRACKING FUNCTIONS
+  // TRACKING FUNCTIONS (continued)
   // ========================================
-
-  const handleIncrement = useCallback(async (category) => {
-    if (!currentUser) return;
-    
-    const today = getToday();
-    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
-    const goal = currentUser.goals[category];
-    const newCount = currentCount + 1;
-    
-    // Update local state immediately
-    const updatedLogs = {
-      ...dailyLogs,
-      [today]: {
-        ...dailyLogs[today],
-        [currentUser.id]: {
-          ...dailyLogs[today]?.[currentUser.id],
-          [category]: newCount,
-        },
-      },
-    };
-    
-    setDailyLogs(updatedLogs);
-    await storage.set('dailyLogs', updatedLogs);
-    
-    // Sync to Supabase
-    try {
-      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-        const { error } = await supabase
-          .from('daily_logs')
-          .upsert({
-            user_id: currentUser.id,
-            date: today,
-            category: category,
-            count: newCount,
-          }, {
-            onConflict: 'user_id,date,category',
-          });
-        
-        if (error) throw error;
-      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-        // Queue for sync if offline
-        await queueSyncOperation({
-          type: 'upsert',
-          table: 'daily_logs',
-          conflictKey: 'user_id,date,category',
-          data: {
-            user_id: currentUser.id,
-            date: today,
-            category: category,
-            count: newCount,
-          },
-        });
-      }
-    } catch (error) {
-      console.error('Failed to sync daily log:', error);
-    }
-    
-    // Auto-post to feed for reviews and callbacks
-    if (category === 'reviews' || category === 'callbacks') {
-      const messages = {
-        reviews: [
-          `🌟 ${currentUser.name} got a review!`,
-          `⭐ ${currentUser.name} secured another review!`,
-          `✨ ${currentUser.name} is collecting reviews!`,
-        ],
-        callbacks: [
-          `📞 ${currentUser.name} made a callback!`,
-          `☎️ ${currentUser.name} completed a callback!`,
-          `💬 ${currentUser.name} is reaching out!`,
-        ],
-      };
-      
-      const messageList = messages[category];
-      const message = messageList[Math.floor(Math.random() * messageList.length)];
-      
-      // Create post in Supabase
-      try {
-        if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-          const { data: postData, error: postError } = await supabase
-            .from('feed_posts')
-            .insert({
-              user_id: currentUser.id,
-              content: sanitizeInput(message),
-              type: 'auto',
-            })
-            .select(`
-              *,
-              user:users(name)
-            `)
-            .single();
-          
-          if (!postError && postData) {
-            const newPost = {
-              id: postData.id,
-              userId: postData.user_id,
-              userName: postData.user?.name || currentUser.name,
-              content: postData.content,
-              timestamp: new Date(postData.created_at).getTime(),
-              likes: [],
-              comments: [],
-              isAuto: true,
-            };
-            const updatedFeed = [newPost, ...feed];
-            setFeed(updatedFeed);
-            await storage.set('feed', updatedFeed);
-          }
-        } else {
-          // Offline: create local post, queue for sync
-          const tempPostId = `temp_${Date.now()}`;
-          const newPost = {
-            id: tempPostId,
-            userId: currentUser.id,
-            userName: currentUser.name,
-            content: sanitizeInput(message),
-            timestamp: Date.now(),
-            likes: [],
-            comments: [],
-            isAuto: true,
-          };
-          const updatedFeed = [newPost, ...feed];
-          setFeed(updatedFeed);
-          await storage.set('feed', updatedFeed);
-          
-          if (!currentUser.id.startsWith('temp_')) {
-            await queueSyncOperation({
-              type: 'insert',
-              table: 'feed_posts',
-              data: {
-                user_id: currentUser.id,
-                content: sanitizeInput(message),
-                type: 'auto',
-              },
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Failed to create feed post:', error);
-      }
-    }
-    
-    // Check for goal completion
-    if (newCount === goal) {
-      setShowCelebration(true);
-      setTimeout(() => setShowCelebration(false), 2000);
-      showToast(`🎉 ${category} goal complete!`, 'success');
-    }
-  }, [currentUser, dailyLogs, showToast, feed]);
   
   const handleDecrement = useCallback(async (category) => {
     if (!currentUser) return;
