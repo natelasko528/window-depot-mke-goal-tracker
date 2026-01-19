@@ -9061,6 +9061,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.ai.voiceChatEnabled)}
             onClick={() => handleAISettingChange('voiceChatEnabled', !localSettings.ai.voiceChatEnabled)}
           >
@@ -9377,6 +9378,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={{
               ...toggleStyle(localSettings.appearance.compactMode),
               flexShrink: 0,
@@ -9405,6 +9407,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={{
               ...toggleStyle(localSettings.appearance.showAnimations),
               flexShrink: 0,
@@ -9485,6 +9488,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.appearance.reduceMotion)}
             onClick={() => handleAppearanceChange('reduceMotion', !localSettings.appearance.reduceMotion)}
           >
@@ -9503,6 +9507,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.appearance.showDebugButton !== false)}
             onClick={() => handleAppearanceChange('showDebugButton', !(localSettings.appearance.showDebugButton !== false))}
           >
@@ -9547,6 +9552,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.goalReminders)}
             onClick={() => handleNotificationChange('goalReminders', !localSettings.notifications.goalReminders)}
           >
@@ -9576,6 +9582,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.endOfDayReminder)}
             onClick={() => handleNotificationChange('endOfDayReminder', !localSettings.notifications.endOfDayReminder)}
           >
@@ -9605,6 +9612,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.achievementAlerts)}
             onClick={() => handleNotificationChange('achievementAlerts', !localSettings.notifications.achievementAlerts)}
           >
@@ -9622,6 +9630,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.teamActivityAlerts)}
             onClick={() => handleNotificationChange('teamActivityAlerts', !localSettings.notifications.teamActivityAlerts)}
           >
@@ -9639,6 +9648,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.likeNotifications)}
             onClick={() => handleNotificationChange('likeNotifications', !localSettings.notifications.likeNotifications)}
           >
@@ -9656,6 +9666,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.appointmentSharedNotifications)}
             onClick={() => handleNotificationChange('appointmentSharedNotifications', !localSettings.notifications.appointmentSharedNotifications)}
           >
@@ -9673,6 +9684,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.notifications.leaderboardChangeAlerts)}
             onClick={() => handleNotificationChange('leaderboardChangeAlerts', !localSettings.notifications.leaderboardChangeAlerts)}
           >
@@ -9717,6 +9729,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.privacy?.optOutOfLeaderboard)}
             onClick={() => handlePrivacyChange('optOutOfLeaderboard', !localSettings.privacy?.optOutOfLeaderboard)}
           >
@@ -9734,6 +9747,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.privacy?.privateMode)}
             onClick={() => handlePrivacyChange('privateMode', !localSettings.privacy?.privateMode)}
           >
@@ -9751,6 +9765,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.privacy?.anonymousMode)}
             onClick={() => handlePrivacyChange('anonymousMode', !localSettings.privacy?.anonymousMode)}
           >
@@ -9903,6 +9918,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.accessibility?.screenReaderMode)}
             onClick={() => handleAccessibilityChange('screenReaderMode', !localSettings.accessibility?.screenReaderMode)}
           >
@@ -9920,6 +9936,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.accessibility?.enableKeyboardShortcuts)}
             onClick={() => handleAccessibilityChange('enableKeyboardShortcuts', !localSettings.accessibility?.enableKeyboardShortcuts)}
           >
@@ -9937,6 +9954,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.accessibility?.highContrast)}
             onClick={() => handleAccessibilityChange('highContrast', !localSettings.accessibility?.highContrast)}
           >
@@ -9954,6 +9972,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.accessibility?.increaseBorderThickness)}
             onClick={() => handleAccessibilityChange('increaseBorderThickness', !localSettings.accessibility?.increaseBorderThickness)}
           >
@@ -9971,6 +9990,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
+            className="toggle-button"
             style={toggleStyle(localSettings.accessibility?.alwaysShowFocusIndicators)}
             onClick={() => handleAccessibilityChange('alwaysShowFocusIndicators', !localSettings.accessibility?.alwaysShowFocusIndicators)}
           >

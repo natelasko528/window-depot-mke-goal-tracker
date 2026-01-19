@@ -342,10 +342,19 @@ img, video, iframe {
 }
 
 /* Touch-friendly tap targets on mobile */
+/* Exclude toggle buttons - they have a specific class and should maintain 24px height */
 @media screen and (max-width: 768px) {
-  button, a, [role="button"] {
+  button:not(.toggle-button), 
+  a:not(.toggle-button), 
+  [role="button"]:not(.toggle-button) {
     min-height: 44px;
     min-width: 44px;
+  }
+  
+  /* Ensure toggle buttons maintain their intended height */
+  .toggle-button {
+    min-height: 24px !important;
+    height: 24px !important;
   }
 }
 
