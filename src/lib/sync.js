@@ -6,6 +6,20 @@ const syncQueue = [];
 let isSyncing = false;
 let syncInterval = null;
 
+// Helper function to check if error is a missing table error (PGRST205)
+const isMissingTableError = (error) => {
+  return error?.code === 'PGRST205' || 
+         (error?.message && error.message.includes('Could not find the table'));
+};
+
+// Helper function to get user-friendly error message
+const getErrorMessage = (error, tableName) => {
+  if (isMissingTableError(error)) {
+    return `Database table '${tableName}' is missing. Please run the migration script in Supabase. See SUPABASE_MIGRATION_INSTRUCTIONS.md for details.`;
+  }
+  return error?.message || 'Unknown error occurred';
+};
+
 // Initialize sync queue from IndexedDB
 export const initSyncQueue = async () => {
   try {
@@ -49,6 +63,26 @@ const processSyncQueue = async () => {
       syncQueue.shift();
       await storage.set('syncQueue', syncQueue);
     } catch (error) {
+      // Check for PGRST205 error (table not found)
+      const isTableNotFound = error?.code === 'PGRST205' || 
+                             error?.message?.includes('PGRST205') ||
+                             error?.message?.includes('relation') && error?.message?.includes('does not exist');
+      
+      if (isTableNotFound) {
+        const tableName = operation.table || 'unknown';
+        console.warn(`⚠️ Table "${tableName}" not found in database. This usually means migrations need to be applied.`, {
+          table: tableName,
+          error: error.message,
+          code: error.code,
+          hint: 'See SUPABASE_MIGRATION_INSTRUCTIONS.md for migration steps'
+        });
+        
+        // Don't retry table not found errors - they won't succeed until migrations are applied
+        syncQueue.shift();
+        await storage.set('syncQueue', syncQueue);
+        continue;
+      }
+      
       console.error('Sync operation failed:', error);
       operation.retries++;
       
@@ -169,7 +203,15 @@ export const syncUsersFromSupabase = async () => {
     await storage.set('users', users);
     return users;
   } catch (error) {
-    console.error('Failed to sync users from Supabase:', error);
+    const isTableNotFound = error?.code === 'PGRST205' || 
+                           error?.message?.includes('PGRST205') ||
+                           (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
+    
+    if (isTableNotFound) {
+      console.warn('⚠️ Users table not found. Migrations may need to be applied. See SUPABASE_MIGRATION_INSTRUCTIONS.md');
+    } else {
+      console.error('Failed to sync users from Supabase:', error);
+    }
     return null;
   }
 };
@@ -199,7 +241,15 @@ export const syncDailyLogsFromSupabase = async () => {
     await storage.set('dailyLogs', dailyLogs);
     return dailyLogs;
   } catch (error) {
-    console.error('Failed to sync daily logs from Supabase:', error);
+    const isTableNotFound = error?.code === 'PGRST205' || 
+                           error?.message?.includes('PGRST205') ||
+                           (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
+    
+    if (isTableNotFound) {
+      console.warn('⚠️ Daily logs table not found. Migrations may need to be applied. See SUPABASE_MIGRATION_INSTRUCTIONS.md');
+    } else {
+      console.error('Failed to sync daily logs from Supabase:', error);
+    }
     return null;
   }
 };
@@ -230,7 +280,15 @@ export const syncAppointmentsFromSupabase = async () => {
     await storage.set('appointments', appointments);
     return appointments;
   } catch (error) {
-    console.error('Failed to sync appointments from Supabase:', error);
+    const isTableNotFound = error?.code === 'PGRST205' || 
+                           error?.message?.includes('PGRST205') ||
+                           (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
+    
+    if (isTableNotFound) {
+      console.warn('⚠️ Appointments table not found. Migrations may need to be applied. See SUPABASE_MIGRATION_INSTRUCTIONS.md');
+    } else {
+      console.error('Failed to sync appointments from Supabase:', error);
+    }
     return null;
   }
 };
@@ -293,7 +351,15 @@ export const syncFeedFromSupabase = async () => {
     await storage.set('feed', feed);
     return feed;
   } catch (error) {
-    console.error('Failed to sync feed from Supabase:', error);
+    const isTableNotFound = error?.code === 'PGRST205' || 
+                           error?.message?.includes('PGRST205') ||
+                           (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
+    
+    if (isTableNotFound) {
+      console.warn('⚠️ Feed tables not found. Migrations may need to be applied. See SUPABASE_MIGRATION_INSTRUCTIONS.md');
+    } else {
+      console.error('Failed to sync feed from Supabase:', error);
+    }
     return null;
   }
 };
@@ -311,7 +377,15 @@ export const syncAchievementsFromSupabase = async () => {
     await storage.set('achievements', data || []);
     return data || [];
   } catch (error) {
-    console.error('Failed to sync achievements from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'achievements');
+    console.error('Failed to sync achievements from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -346,7 +420,15 @@ export const syncChallengesFromSupabase = async () => {
     await storage.set('challenges', challenges);
     return challenges;
   } catch (error) {
-    console.error('Failed to sync challenges from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'challenges');
+    console.error('Failed to sync challenges from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -374,7 +456,15 @@ export const syncUserChallengesFromSupabase = async () => {
     await storage.set('userChallenges', userChallenges);
     return userChallenges;
   } catch (error) {
-    console.error('Failed to sync user challenges from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'user_challenges');
+    console.error('Failed to sync user challenges from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -404,7 +494,15 @@ export const syncRewardsFromSupabase = async () => {
     await storage.set('rewards', rewards);
     return rewards;
   } catch (error) {
-    console.error('Failed to sync rewards from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'rewards');
+    console.error('Failed to sync rewards from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -432,7 +530,15 @@ export const syncUserRewardsFromSupabase = async () => {
     await storage.set('userRewards', userRewards);
     return userRewards;
   } catch (error) {
-    console.error('Failed to sync user rewards from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'user_rewards');
+    console.error('Failed to sync user rewards from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -464,7 +570,15 @@ export const syncAuditLogFromSupabase = async () => {
     await storage.set('auditLog', auditLog);
     return auditLog;
   } catch (error) {
-    console.error('Failed to sync audit log from Supabase:', error);
+    const errorMsg = getErrorMessage(error, 'audit_log');
+    console.error('Failed to sync audit log from Supabase:', {
+      error,
+      message: errorMsg,
+      code: error?.code,
+    });
+    if (isMissingTableError(error)) {
+      console.warn('⚠️ Missing table detected. Run migration: supabase/migrations/000_apply_all_missing_tables.sql');
+    }
     return null;
   }
 };
@@ -514,7 +628,15 @@ export const syncAllFromSupabase = async () => {
       auditLog,
     };
   } catch (error) {
-    console.error('Failed to sync all data from Supabase:', error);
+    const isTableNotFound = error?.code === 'PGRST205' || 
+                           error?.message?.includes('PGRST205') ||
+                           (error?.message?.includes('relation') && error?.message?.includes('does not exist'));
+    
+    if (isTableNotFound) {
+      console.warn('⚠️ One or more tables not found. Migrations may need to be applied. See SUPABASE_MIGRATION_INSTRUCTIONS.md');
+    } else {
+      console.error('Failed to sync all data from Supabase:', error);
+    }
     return null;
   }
 };
