@@ -68,7 +68,7 @@ console.warn = (...args) => addLog('warn', ...args);
 console.info = (...args) => addLog('info', ...args);
 console.debug = (...args) => addLog('debug', ...args);
 
-function DebugLogger() {
+function DebugLogger({ showDebugButton = true }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [logEntries, setLogEntries] = useState([]);
@@ -162,6 +162,11 @@ function DebugLogger() {
       default: return THEME.textLight;
     }
   };
+
+  // Don't render if showDebugButton is false
+  if (!showDebugButton && !isOpen) {
+    return null;
+  }
 
   if (!isOpen) {
     return (

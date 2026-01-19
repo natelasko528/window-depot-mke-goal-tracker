@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown, Terminal } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { getTheme, listenToSystemThemeChanges } from './lib/theme';
@@ -393,6 +393,7 @@ export default function WindowDepotTracker() {
       fontSize: 'medium',
       density: 'comfortable',
       reduceMotion: false,
+      showDebugButton: true,
     },
     notifications: {
       goalReminders: true,
@@ -2707,7 +2708,7 @@ export default function WindowDepotTracker() {
       />
       
       {/* Debug Logger */}
-      <DebugLogger />
+      <DebugLogger showDebugButton={appSettings?.appearance?.showDebugButton !== false} />
     </div>
     </>
   );
@@ -9359,8 +9360,15 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '16px',
+          gap: '16px',
+          flexWrap: 'nowrap',
+        }}>
+          <div style={{ flex: '1', minWidth: 0 }}>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Compact Mode
             </div>
@@ -9369,15 +9377,26 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
-            style={toggleStyle(localSettings.appearance.compactMode)}
+            style={{
+              ...toggleStyle(localSettings.appearance.compactMode),
+              flexShrink: 0,
+              flexGrow: 0,
+            }}
             onClick={() => handleAppearanceChange('compactMode', !localSettings.appearance.compactMode)}
           >
             <div style={toggleKnobStyle(localSettings.appearance.compactMode)} />
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '16px',
+          gap: '16px',
+          flexWrap: 'nowrap',
+        }}>
+          <div style={{ flex: '1', minWidth: 0 }}>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Show Animations
             </div>
@@ -9386,7 +9405,11 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             </div>
           </div>
           <button
-            style={toggleStyle(localSettings.appearance.showAnimations)}
+            style={{
+              ...toggleStyle(localSettings.appearance.showAnimations),
+              flexShrink: 0,
+              flexGrow: 0,
+            }}
             onClick={() => handleAppearanceChange('showAnimations', !localSettings.appearance.showAnimations)}
           >
             <div style={toggleKnobStyle(localSettings.appearance.showAnimations)} />
@@ -9452,7 +9475,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
           </select>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Reduce Motion
@@ -9466,6 +9489,24 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
             onClick={() => handleAppearanceChange('reduceMotion', !localSettings.appearance.reduceMotion)}
           >
             <div style={toggleKnobStyle(localSettings.appearance.reduceMotion)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', paddingTop: '24px', borderTop: `1px solid ${THEME.border}` }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Terminal size={14} />
+              Show Debug Logger Button
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Toggle visibility of the debug logger button in the top right corner
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.appearance.showDebugButton !== false)}
+            onClick={() => handleAppearanceChange('showDebugButton', !(localSettings.appearance.showDebugButton !== false))}
+          >
+            <div style={toggleKnobStyle(localSettings.appearance.showDebugButton !== false)} />
           </button>
         </div>
       </div>
