@@ -8962,18 +8962,25 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
         storedState.clientSecret
       );
 
-      // Connect integration using tokens
-      if (!integrationManager) {
-        throw new Error('Integration manager not initialized');
+      // Ensure integration manager is initialized
+      let managerToUse = integrationManager;
+      if (!managerToUse && currentUser?.id) {
+        const { IntegrationManager } = require('./lib/integrations');
+        managerToUse = new IntegrationManager(currentUser.id);
+        setIntegrationManager(managerToUse);
       }
 
-      await integrationManager.connectZoom(
+      if (!managerToUse) {
+        throw new Error('Integration manager not initialized. Please ensure you are logged in.');
+      }
+
+      await managerToUse.connectZoom(
         tokenResponse.access_token,
         tokenResponse.refresh_token
       );
 
       // Update UI
-      const status = await manager.getZoomStatus();
+      const status = await managerToUse.getZoomStatus();
       setZoomStatus(status);
 
       // Clean up
@@ -8985,7 +8992,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       showToast('Zoom connected successfully!', 'success');
 
       // Load meetings
-      const meetings = await manager.getZoomMeetings();
+      const meetings = await managerToUse.getZoomMeetings();
       setZoomMeetings(meetings || []);
 
     } catch (error) {
