@@ -42,6 +42,24 @@ This file provides comprehensive skill instructions for the **Window Depot Daily
   - Files: `src/lib/ai.js` (text), `src/lib/voiceChat.js` (voice)
   - Usage: AI Coach for goal tracking
 
+### Third-Party Integrations
+- **Jotform** - Form submission sync
+  - Documentation: See integration files in `src/lib/integrations.js`
+  - Usage: Sync form submissions for lead tracking
+- **Marketsharp** - CRM integration
+  - Documentation: See integration files in `src/lib/integrations.js`
+  - Usage: Sync leads and contacts from Marketsharp CRM
+- **GoHighLevel** - CRM and appointment management
+  - Documentation: [`docs/integrations/gohighlevel-api.md`](./docs/integrations/gohighlevel-api.md)
+  - Files: `src/lib/integrations.js` (GoHighLevelClient), `supabase/functions/gohighlevel-webhook/`
+  - Usage: Sync contacts, opportunities, and appointments
+  - Setup: [`docs/integrations/INTEGRATION_SETUP.md`](./docs/integrations/INTEGRATION_SETUP.md)
+- **Zoom Workplace** - Meeting management
+  - Documentation: [`docs/integrations/zoom-api.md`](./docs/integrations/zoom-api.md)
+  - Files: `src/lib/integrations.js` (ZoomClient), `src/lib/oauth.js`, `supabase/functions/zoom-webhook/`
+  - Usage: Create and sync Zoom meetings, receive meeting webhooks
+  - Setup: [`docs/integrations/INTEGRATION_SETUP.md`](./docs/integrations/INTEGRATION_SETUP.md)
+
 ### Storage
 - **IndexedDB** - Client-side storage
   - Documentation: [`docs/indexeddb/`](./docs/indexeddb/)
@@ -216,6 +234,11 @@ Comprehensive documentation is available in the `docs/` folder:
 - [`docs/gemini-ai/live-api.md`](./docs/gemini-ai/live-api.md) - Voice chat and WebSocket
 - [`docs/gemini-ai/models.md`](./docs/gemini-ai/models.md) - Available models
 
+### Integrations
+- [`docs/integrations/gohighlevel-api.md`](./docs/integrations/gohighlevel-api.md) - GoHighLevel API reference
+- [`docs/integrations/zoom-api.md`](./docs/integrations/zoom-api.md) - Zoom Workplace API reference
+- [`docs/integrations/INTEGRATION_SETUP.md`](./docs/integrations/INTEGRATION_SETUP.md) - Setup instructions for all integrations
+
 ### Other
 - [`docs/lucide-react/icons-guide.md`](./docs/lucide-react/icons-guide.md) - Icon usage
 - [`docs/indexeddb/storage-patterns.md`](./docs/indexeddb/storage-patterns.md) - Storage patterns
@@ -243,8 +266,13 @@ Comprehensive documentation is available in the `docs/` folder:
 - **Action**: Apply "INTENTIONAL MINIMALISM", use existing libraries
 
 ### Documentation Lookup
-- **Use Context7 MCP** for up-to-date library docs
+- **Use Context7 MCP** for up-to-date library docs (70%+ token reduction)
 - **Check `docs/` folder** for project-specific documentation
+- **MANDATORY**: When making major changes (new integrations, API updates, architecture changes):
+  1. Use Context7 MCP to fetch latest documentation
+  2. Update relevant docs in `docs/` folder
+  3. Update `PROJECT_RULES.md` if patterns change
+  4. Commit documentation updates with code changes
 
 ## Workflow Patterns
 
@@ -256,10 +284,15 @@ Comprehensive documentation is available in the `docs/` folder:
 
 ### Pattern 2: Documentation-Driven Development
 
-1. Use Context7 MCP to retrieve library documentation
-2. Check `docs/` folder for project-specific docs
-3. Implement based on official patterns
-4. Verify with tests and visual inspection
+1. **Before implementing**: Use Context7 MCP to retrieve latest library documentation
+   - Use `mcp_Context7_resolve-library-id` to find library IDs
+   - Use `mcp_Context7_query-docs` to get up-to-date API docs and examples
+2. Check `docs/` folder for project-specific documentation patterns
+3. Implement based on official patterns from Context7
+4. **After implementing**: Update project documentation if needed
+   - Create or update files in `docs/` folder
+   - Update `PROJECT_RULES.md` if adding new integrations or changing patterns
+5. Verify with tests and visual inspection
 
 ### Pattern 3: Offline-First Feature Development
 
@@ -271,14 +304,19 @@ Comprehensive documentation is available in the `docs/` folder:
 ## File Structure Reference
 
 ### Key Files
-- `src/App.jsx` - Main application component (5374 lines)
+- `src/App.jsx` - Main application component
 - `src/lib/supabase.js` - Supabase client
 - `src/lib/sync.js` - Offline-first sync layer
 - `src/lib/ai.js` - Gemini text API
 - `src/lib/voiceChat.js` - Gemini Live API voice chat
 - `src/lib/presence.js` - Real-time user presence
+- `src/lib/integrations.js` - Third-party integrations (Jotform, Marketsharp, GoHighLevel, Zoom)
+- `src/lib/oauth.js` - OAuth 2.0 utilities for Zoom and GoHighLevel
 - `src/storage.js` - IndexedDB storage adapter
 - `supabase/migrations/` - Database migrations
+- `supabase/functions/jotform-webhook/` - Jotform webhook handler
+- `supabase/functions/gohighlevel-webhook/` - GoHighLevel webhook handler
+- `supabase/functions/zoom-webhook/` - Zoom webhook handler
 
 ### Configuration Files
 - `package.json` - Dependencies and scripts

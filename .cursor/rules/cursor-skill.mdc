@@ -494,6 +494,62 @@ Each is one focused change that can be completed and verified independently.
 5. Verify with tests and visual inspection
 ```
 
+### Pattern 4A: Documentation Update Protocol (MANDATORY)
+
+**CRITICAL**: When making major changes to the project, you MUST update documentation using Context7 MCP.
+
+**When to Use:**
+- Adding new integrations or third-party services
+- Updating API dependencies or versions
+- Changing architecture patterns or workflows
+- Adding new features that use external libraries
+- Modifying existing integrations or APIs
+
+**Mandatory Steps:**
+
+```
+1. Identify affected libraries/APIs:
+   - List all external libraries, APIs, or services being used or changed
+   - Note version updates or breaking changes
+
+2. Fetch latest documentation using Context7 MCP:
+   - Use `mcp_Context7_resolve-library-id` to find library IDs
+   - Use `mcp_Context7_query-docs` to get up-to-date documentation
+   - Query for: authentication, API endpoints, breaking changes, best practices
+
+3. Update project documentation:
+   - Update or create files in `docs/` folder following existing patterns
+   - Include: API reference, setup instructions, code examples, troubleshooting
+   - Update `docs/README.md` to reference new/updated documentation
+
+4. Update PROJECT_RULES.md:
+   - Add new integrations/services to tech stack section
+   - Update patterns if architecture changes
+   - Add references to new documentation files
+
+5. Commit documentation with code:
+   - Documentation updates MUST be committed with related code changes
+   - Use clear commit messages indicating documentation updates
+   - Never commit code without updating documentation if required
+
+6. Verify documentation accuracy:
+   - Ensure code examples match implementation
+   - Verify setup instructions work end-to-end
+   - Check that all referenced resources are accessible
+```
+
+**Why This Matters:**
+- Context7 MCP provides 70%+ token reduction while ensuring up-to-date information
+- Documentation keeps future developers (and AI agents) aligned with current practices
+- Breaking changes and new features require documentation to prevent confusion
+- Well-documented code is more maintainable and easier to understand
+
+**Failure to follow this protocol can result in:**
+- Outdated documentation that misleads developers
+- Missing information about breaking changes
+- Inconsistent patterns across the codebase
+- Difficulty maintaining and extending the project
+
 ### Pattern 5: Pre-Push Local Verification (MANDATORY)
 
 **CRITICAL**: ALWAYS verify changes locally before pushing to GitHub.
@@ -997,8 +1053,12 @@ When using Ripple Context Strategy with Cursor:
 
 ### Documentation (Context7 MCP)
 
+**MANDATORY**: Use Context7 MCP for all documentation updates when making major changes.
+
 - **Find Library**: `mcp_Context7_resolve-library-id` - Get library ID
 - **Query Docs**: `mcp_Context7_query-docs` - Get documentation and examples
+- **Update Docs**: When adding integrations, APIs, or major features, MUST fetch latest docs via Context7 and update `docs/` folder
+- **Update Rules**: MUST update `PROJECT_RULES.md` when patterns or tech stack changes
 
 ### Task Management
 

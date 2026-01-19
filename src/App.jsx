@@ -8384,10 +8384,14 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       // Load integration statuses
       manager.getJotformStatus().then(setJotformStatus).catch(console.error);
       manager.getMarketsharpStatus().then(setMarketsharpStatus).catch(console.error);
+      manager.getGoHighLevelStatus().then(setGoHighLevelStatus).catch(console.error);
+      manager.getZoomStatus().then(setZoomStatus).catch(console.error);
       
       // Load synced data
       manager.getJotformSubmissions().then(setJotformSubmissions).catch(console.error);
       manager.getMarketsharpData().then(setMarketsharpData).catch(console.error);
+      manager.getGoHighLevelData().then(setGoHighLevelData).catch(console.error);
+      manager.getZoomMeetings().then(setZoomMeetings).catch(console.error);
     }
   }, [currentUser?.id]);
 
@@ -8502,15 +8506,24 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
   // Integration state
   const [jotformStatus, setJotformStatus] = useState({ connected: false });
   const [marketsharpStatus, setMarketsharpStatus] = useState({ connected: false });
+  const [gohighlevelStatus, setGoHighLevelStatus] = useState({ connected: false });
+  const [zoomStatus, setZoomStatus] = useState({ connected: false });
   const [jotformApiKey, setJotformApiKey] = useState('');
   const [showJotformKey, setShowJotformKey] = useState(false);
   const [marketsharpApiKey, setMarketsharpApiKey] = useState('');
   const [marketsharpCompanyId, setMarketsharpCompanyId] = useState('');
   const [showMarketsharpKey, setShowMarketsharpKey] = useState(false);
+  const [gohighlevelApiKey, setGoHighLevelApiKey] = useState('');
+  const [gohighlevelLocationId, setGoHighLevelLocationId] = useState('');
+  const [showGoHighLevelKey, setShowGoHighLevelKey] = useState(false);
   const [isConnectingJotform, setIsConnectingJotform] = useState(false);
   const [isConnectingMarketsharp, setIsConnectingMarketsharp] = useState(false);
+  const [isConnectingGoHighLevel, setIsConnectingGoHighLevel] = useState(false);
+  const [isConnectingZoom, setIsConnectingZoom] = useState(false);
   const [jotformSubmissions, setJotformSubmissions] = useState([]);
   const [marketsharpData, setMarketsharpData] = useState({ leads: [], contacts: [] });
+  const [gohighlevelData, setGoHighLevelData] = useState({ contacts: [], opportunities: [], appointments: [] });
+  const [zoomMeetings, setZoomMeetings] = useState([]);
   const [integrationManager, setIntegrationManager] = useState(null);
 
   const exportUserData = () => {
@@ -8697,6 +8710,106 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
       const result = await integrationManager.syncMarketsharpData();
       setMarketsharpData(await integrationManager.getMarketsharpData());
       showToast(`Synced ${result.leadsCount} leads and ${result.contactsCount} contacts`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
+  };
+
+  const handleConnectGoHighLevel = async () => {
+    if (!gohighlevelApiKey.trim() || !gohighlevelLocationId.trim()) {
+      showToast('Please enter both API key and Location ID', 'error');
+      return;
+    }
+
+    if (!integrationManager) {
+      showToast('Integration manager not initialized', 'error');
+      return;
+    }
+
+    setIsConnectingGoHighLevel(true);
+    try {
+      await integrationManager.connectGoHighLevel(gohighlevelApiKey.trim(), gohighlevelLocationId.trim());
+      const status = await integrationManager.getGoHighLevelStatus();
+      setGoHighLevelStatus(status);
+      setGoHighLevelApiKey('');
+      setGoHighLevelLocationId('');
+      showToast('GoHighLevel connected successfully', 'success');
+      
+      // Start sync
+      integrationManager.startGoHighLevelSync((result) => {
+        if (result.success) {
+          integrationManager.getGoHighLevelData().then(setGoHighLevelData);
+        }
+      });
+    } catch (error) {
+      showToast(`Failed to connect: ${error.message}`, 'error');
+    } finally {
+      setIsConnectingGoHighLevel(false);
+    }
+  };
+
+  const handleDisconnectGoHighLevel = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectGoHighLevel();
+      setGoHighLevelStatus({ connected: false });
+      setGoHighLevelData({ contacts: [], opportunities: [], appointments: [] });
+      showToast('GoHighLevel disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncGoHighLevel = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const [contactsResult, opportunitiesResult] = await Promise.all([
+        integrationManager.syncGoHighLevelContacts(),
+        integrationManager.syncGoHighLevelOpportunities(),
+      ]);
+      setGoHighLevelData(await integrationManager.getGoHighLevelData());
+      showToast(`Synced ${contactsResult.count} contacts and ${opportunitiesResult.count} opportunities`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
+  };
+
+  const handleConnectZoom = async () => {
+    // Zoom OAuth flow - redirect to Zoom authorization
+    // TODO: Implement full OAuth flow with redirect handling
+    // For now, show informational message
+    showToast('Zoom OAuth setup required. See documentation for setup instructions.', 'info');
+    
+    // In production, this would:
+    // 1. Generate OAuth URL with PKCE
+    // 2. Redirect user to Zoom for authorization
+    // 3. Handle callback with authorization code
+    // 4. Exchange code for tokens
+    // 5. Store tokens and connect integration
+  };
+
+  const handleDisconnectZoom = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectZoom();
+      setZoomStatus({ connected: false });
+      setZoomMeetings([]);
+      showToast('Zoom disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncZoom = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const result = await integrationManager.syncZoomMeetings();
+      setZoomMeetings(await integrationManager.getZoomMeetings());
+      showToast(`Synced ${result.count} meetings`, 'success');
     } catch (error) {
       showToast(`Sync failed: ${error.message}`, 'error');
     }
@@ -10338,6 +10451,307 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, curre
                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
                   <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
                     Synced: {marketsharpData.leads.length} leads, {marketsharpData.contacts.length} contacts
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* GoHighLevel Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                GoHighLevel Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync contacts, opportunities, and appointments from GoHighLevel
+              </p>
+            </div>
+          </div>
+
+          {!gohighlevelStatus.connected ? (
+            <div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>GoHighLevel API Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showGoHighLevelKey ? 'text' : 'password'}
+                    value={gohighlevelApiKey}
+                    onChange={(e) => setGoHighLevelApiKey(e.target.value)}
+                    placeholder="Enter your GoHighLevel API key"
+                    style={{ ...inputStyle, paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGoHighLevelKey(!showGoHighLevelKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    {showGoHighLevelKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+                  </button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Get your API key from{' '}
+                  <a href="https://support.gohighlevel.com/hc/en-us/articles/360041267573-API-Keys" target="_blank" rel="noopener noreferrer" style={{ color: THEME.primary }}>
+                    GoHighLevel Settings
+                  </a>
+                </p>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Location ID</label>
+                <input
+                  type="text"
+                  value={gohighlevelLocationId}
+                  onChange={(e) => setGoHighLevelLocationId(e.target.value)}
+                  placeholder="Enter your GoHighLevel Location ID"
+                  style={inputStyle}
+                />
+                <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Find your Location ID in your GoHighLevel account settings
+                </p>
+              </div>
+              <button
+                onClick={handleConnectGoHighLevel}
+                disabled={isConnectingGoHighLevel || !gohighlevelApiKey.trim() || !gohighlevelLocationId.trim()}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingGoHighLevel || !gohighlevelApiKey.trim() || !gohighlevelLocationId.trim() ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingGoHighLevel || !gohighlevelApiKey.trim() || !gohighlevelLocationId.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingGoHighLevel ? 'Connecting...' : 'Connect GoHighLevel'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: gohighlevelStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: gohighlevelStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {gohighlevelStatus.status === 'error' ? `Error: ${gohighlevelStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncGoHighLevel}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectGoHighLevel}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {(gohighlevelData.contacts.length > 0 || gohighlevelData.opportunities.length > 0) && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced: {gohighlevelData.contacts.length} contacts, {gohighlevelData.opportunities.length} opportunities
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Zoom Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                Zoom Workplace Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync meetings and create Zoom meetings from your appointments
+              </p>
+            </div>
+          </div>
+
+          {!zoomStatus.connected ? (
+            <div>
+              <button
+                onClick={handleConnectZoom}
+                disabled={isConnectingZoom}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingZoom ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingZoom ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingZoom ? 'Connecting...' : 'Connect with Zoom'}
+              </button>
+              <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight, textAlign: 'center' }}>
+                OAuth integration - redirects to Zoom for authorization
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: zoomStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: zoomStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {zoomStatus.status === 'error' ? `Error: ${zoomStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncZoom}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectZoom}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {zoomMeetings.length > 0 && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced Meetings: {zoomMeetings.length}
+                  </div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {zoomMeetings.slice(0, 10).map((meeting, idx) => (
+                      <div key={idx} style={{ 
+                        padding: '8px', 
+                        background: THEME.secondary, 
+                        borderRadius: '6px',
+                        marginBottom: '6px',
+                        fontSize: '12px',
+                      }}>
+                        <div style={{ fontWeight: '600', color: THEME.text }}>
+                          {meeting.topic || `Meeting ${meeting.id}`}
+                        </div>
+                        <div style={{ color: THEME.textLight, fontSize: '11px' }}>
+                          {meeting.start_time ? new Date(meeting.start_time).toLocaleDateString() : 'No start time'}
+                        </div>
+                      </div>
+                    ))}
+                    {zoomMeetings.length > 10 && (
+                      <div style={{ fontSize: '11px', color: THEME.textLight, textAlign: 'center', marginTop: '8px' }}>
+                        +{zoomMeetings.length - 10} more
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
