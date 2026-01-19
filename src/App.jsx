@@ -2709,6 +2709,7 @@ export default function WindowDepotTracker() {
       {/* Debug Logger */}
       <DebugLogger />
     </div>
+    </>
   );
 }
 
