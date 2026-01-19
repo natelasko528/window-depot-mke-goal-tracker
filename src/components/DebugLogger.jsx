@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Copy, Download, Save, Trash2, Eye, EyeOff } from 'lucide-react';
+import { X, Copy, Download, Save, Trash2, Eye, EyeOff, Terminal } from 'lucide-react';
 
 const THEME = {
   primary: '#0056A4',
@@ -167,6 +167,7 @@ function DebugLogger() {
     return (
       <button
         onClick={() => setIsOpen(true)}
+        className="debug-logger-button"
         style={{
           position: 'fixed',
           top: '80px',
@@ -185,6 +186,8 @@ function DebugLogger() {
           zIndex: 10000,
           fontSize: '20px',
           transition: 'transform 0.2s ease',
+          flexShrink: 0,
+          flexGrow: 0,
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'scale(1.1)';
@@ -194,7 +197,7 @@ function DebugLogger() {
         }}
         title="Open Debug Logger"
       >
-        🐛
+        <Terminal size={20} />
       </button>
     );
   }
@@ -278,8 +281,9 @@ function DebugLogger() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Terminal size={16} color={THEME.text} />
           <span style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
-            🐛 Debug Logger ({logEntries.length} entries)
+            Debug Logger ({logEntries.length} entries)
           </span>
         </div>
         <div style={{ display: 'flex', gap: '4px' }}>

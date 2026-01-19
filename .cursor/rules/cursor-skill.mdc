@@ -494,7 +494,25 @@ Each is one focused change that can be completed and verified independently.
 5. Verify with tests and visual inspection
 ```
 
-### Pattern 5: Post-Push Deployment Verification
+### Pattern 5: Pre-Push Local Verification (MANDATORY)
+
+**CRITICAL**: ALWAYS verify changes locally before pushing to GitHub.
+
+```
+1. Start local dev server: `npm start` (run in background)
+2. Wait 15-20 seconds for server to be ready
+3. Navigate to localhost: Use `mcp_cursor-ide-browser_browser_navigate` to http://localhost:3000
+4. Wait for page load: Use `mcp_cursor-ide-browser_browser_wait_for` (3-5 seconds)
+5. Take snapshot: Use `mcp_cursor-ide-browser_browser_snapshot` to verify page structure
+6. Take screenshot: Use `mcp_cursor-ide-browser_browser_take_screenshot` for visual verification
+7. Verify changes: Check that the changes work as expected visually and functionally
+8. Check lints: Use `read_lints` to ensure no code errors
+9. Only after verification: Proceed to Pattern 6 (Push and Deploy)
+```
+
+**NEVER push changes without local verification first.**
+
+### Pattern 6: Post-Push Deployment Verification
 
 **CRITICAL**: After pushing changes to GitHub, always verify Vercel deployment status.
 
@@ -506,7 +524,7 @@ Each is one focused change that can be completed and verified independently.
 5. List latest deployments: Use `mcp_Vercel_list_deployments` with projectId and teamId
 6. Check deployment state: Verify latest deployment state is "READY" not "ERROR"
 7. If ERROR: Get build logs using `mcp_Vercel_get_deployment_build_logs` with deployment ID
-8. Fix any errors found and repeat process
+8. Fix any errors found and repeat process (Pattern 5 → Pattern 6)
 9. If READY: Deployment successful, verify in browser if needed
 ```
 
