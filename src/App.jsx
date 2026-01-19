@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { getTheme, listenToSystemThemeChanges } from './lib/theme';
@@ -389,10 +389,34 @@ export default function WindowDepotTracker() {
     appearance: {
       compactMode: false,
       showAnimations: true,
+      theme: 'light',
+      fontSize: 'medium',
+      density: 'comfortable',
+      reduceMotion: false,
     },
     notifications: {
       goalReminders: true,
+      goalReminderTime: '09:00',
+      endOfDayReminder: true,
+      endOfDayReminderTime: '18:00',
       achievementAlerts: true,
+      teamActivityAlerts: true,
+      likeNotifications: true,
+      appointmentSharedNotifications: true,
+      leaderboardChangeAlerts: true,
+    },
+    privacy: {
+      optOutOfLeaderboard: false,
+      privateMode: false,
+      anonymousMode: false,
+    },
+    accessibility: {
+      screenReaderMode: false,
+      enableKeyboardShortcuts: true,
+      highContrast: false,
+      increaseBorderThickness: false,
+      alwaysShowFocusIndicators: true,
+      colorblindMode: 'none',
     },
   });
   const [themeMode, setThemeMode] = useState('light');
@@ -2588,6 +2612,19 @@ export default function WindowDepotTracker() {
             onSaveSettings={saveSettings}
             currentThemeMode={themeMode}
             theme={currentTheme}
+            currentUser={currentUser}
+            users={users}
+            setUsers={setUsers}
+            dailyLogs={dailyLogs}
+            appointments={appointments}
+            feed={feed}
+            setDailyLogs={setDailyLogs}
+            setAppointments={setAppointments}
+            setFeed={setFeed}
+            setCurrentUser={setCurrentUser}
+            showToast={showToast}
+            isSupabaseConfigured={isSupabaseConfigured}
+            isOnline={isOnline}
           />
         )}
       </div>
@@ -8235,7 +8272,7 @@ function Reports({ users, dailyLogs, appointments, theme }) {
 // SETTINGS COMPONENT
 // ========================================
 
-function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
+function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, currentUser, users, setUsers, dailyLogs, appointments, feed, setDailyLogs, setAppointments, setFeed, setCurrentUser, showToast, isSupabaseConfigured, isOnline }) {
   const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
   const [localSettings, setLocalSettings] = useState({ ...settings, themeMode: currentThemeMode });
   const [showApiKey, setShowApiKey] = useState(false);
@@ -8251,6 +8288,23 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
   useEffect(() => {
     setLocalSettings(prev => ({ ...prev, ...settings, themeMode: currentThemeMode }));
   }, [settings, currentThemeMode]);
+
+  // Initialize integration manager and load status
+  useEffect(() => {
+    if (currentUser?.id) {
+      const { IntegrationManager } = require('./lib/integrations');
+      const manager = new IntegrationManager(currentUser.id);
+      setIntegrationManager(manager);
+      
+      // Load integration statuses
+      manager.getJotformStatus().then(setJotformStatus).catch(console.error);
+      manager.getMarketsharpStatus().then(setMarketsharpStatus).catch(console.error);
+      
+      // Load synced data
+      manager.getJotformSubmissions().then(setJotformSubmissions).catch(console.error);
+      manager.getMarketsharpData().then(setMarketsharpData).catch(console.error);
+    }
+  }, [currentUser?.id]);
 
   // Fetch available models when API key is available
   useEffect(() => {
@@ -8341,6 +8395,226 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
       ...prev,
       notifications: { ...prev.notifications, [key]: value }
     }));
+  };
+
+  const handlePrivacyChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      privacy: { ...prev.privacy, [key]: value }
+    }));
+  };
+
+  const handleAccessibilityChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      accessibility: { ...prev.accessibility, [key]: value }
+    }));
+  };
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
+  // Integration state
+  const [jotformStatus, setJotformStatus] = useState({ connected: false });
+  const [marketsharpStatus, setMarketsharpStatus] = useState({ connected: false });
+  const [jotformApiKey, setJotformApiKey] = useState('');
+  const [showJotformKey, setShowJotformKey] = useState(false);
+  const [marketsharpApiKey, setMarketsharpApiKey] = useState('');
+  const [marketsharpCompanyId, setMarketsharpCompanyId] = useState('');
+  const [showMarketsharpKey, setShowMarketsharpKey] = useState(false);
+  const [isConnectingJotform, setIsConnectingJotform] = useState(false);
+  const [isConnectingMarketsharp, setIsConnectingMarketsharp] = useState(false);
+  const [jotformSubmissions, setJotformSubmissions] = useState([]);
+  const [marketsharpData, setMarketsharpData] = useState({ leads: [], contacts: [] });
+  const [integrationManager, setIntegrationManager] = useState(null);
+
+  const exportUserData = () => {
+    try {
+      const userData = {
+        user: currentUser,
+        dailyLogs: dailyLogs.filter(log => log.userId === currentUser.id),
+        appointments: appointments.filter(apt => apt.userId === currentUser.id),
+        feed: feed.filter(post => post.userId === currentUser.id),
+        settings: localSettings,
+        exportDate: new Date().toISOString(),
+      };
+      const dataStr = JSON.stringify(userData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `window-depot-data-${currentUser.id}-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('Data exported successfully', 'success');
+    } catch (error) {
+      console.error('Export failed:', error);
+      showToast('Failed to export data', 'error');
+    }
+  };
+
+  const deleteUserAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      showToast('Please type DELETE to confirm', 'error');
+      return;
+    }
+
+    try {
+      // Remove user from users array
+      const updatedUsers = users.filter(u => u.id !== currentUser.id);
+      setUsers(updatedUsers);
+      await storage.set('users', updatedUsers);
+
+      // Clear user-specific data from IndexedDB
+      const userLogs = dailyLogs.filter(log => log.userId === currentUser.id);
+      const userAppts = appointments.filter(apt => apt.userId === currentUser.id);
+      const userFeed = feed.filter(post => post.userId === currentUser.id);
+
+      // Remove from state
+      setDailyLogs(prev => prev.filter(log => log.userId !== currentUser.id));
+      setAppointments(prev => prev.filter(apt => apt.userId !== currentUser.id));
+      setFeed(prev => prev.filter(post => post.userId !== currentUser.id));
+
+      // Sync to Supabase if configured
+      if (isSupabaseConfigured && isOnline) {
+        try {
+          const { syncToSupabase } = await import('./lib/sync');
+          await syncToSupabase();
+        } catch (syncError) {
+          console.error('Supabase sync failed during deletion:', syncError);
+        }
+      }
+
+      // Clear current user session
+      setCurrentUser(null);
+      await storage.remove('currentUser');
+      await storage.remove('rememberUser');
+
+      showToast('Account deleted successfully', 'success');
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText('');
+    } catch (error) {
+      console.error('Account deletion failed:', error);
+      showToast('Failed to delete account', 'error');
+    }
+  };
+
+  // Integration handlers
+  const handleConnectJotform = async () => {
+    if (!jotformApiKey.trim()) {
+      showToast('Please enter your Jotform API key', 'error');
+      return;
+    }
+
+    if (!integrationManager) {
+      showToast('Integration manager not initialized', 'error');
+      return;
+    }
+
+    setIsConnectingJotform(true);
+    try {
+      await integrationManager.connectJotform(jotformApiKey.trim());
+      const status = await integrationManager.getJotformStatus();
+      setJotformStatus(status);
+      setJotformApiKey('');
+      showToast('Jotform connected successfully', 'success');
+      
+      // Start sync
+      integrationManager.startJotformSync((result) => {
+        if (result.success) {
+          integrationManager.getJotformSubmissions().then(setJotformSubmissions);
+        }
+      });
+    } catch (error) {
+      showToast(`Failed to connect: ${error.message}`, 'error');
+    } finally {
+      setIsConnectingJotform(false);
+    }
+  };
+
+  const handleDisconnectJotform = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectJotform();
+      setJotformStatus({ connected: false });
+      setJotformSubmissions([]);
+      showToast('Jotform disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncJotform = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const result = await integrationManager.syncJotformSubmissions();
+      setJotformSubmissions(await integrationManager.getJotformSubmissions());
+      showToast(`Synced ${result.count} submissions`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
+  };
+
+  const handleConnectMarketsharp = async () => {
+    if (!marketsharpApiKey.trim() || !marketsharpCompanyId.trim()) {
+      showToast('Please enter both API key and Company ID', 'error');
+      return;
+    }
+
+    if (!integrationManager) {
+      showToast('Integration manager not initialized', 'error');
+      return;
+    }
+
+    setIsConnectingMarketsharp(true);
+    try {
+      await integrationManager.connectMarketsharp(marketsharpApiKey.trim(), marketsharpCompanyId.trim());
+      const status = await integrationManager.getMarketsharpStatus();
+      setMarketsharpStatus(status);
+      setMarketsharpApiKey('');
+      setMarketsharpCompanyId('');
+      showToast('Marketsharp connected successfully', 'success');
+      
+      // Start sync
+      integrationManager.startMarketsharpSync((result) => {
+        if (result.success) {
+          integrationManager.getMarketsharpData().then(setMarketsharpData);
+        }
+      });
+    } catch (error) {
+      showToast(`Failed to connect: ${error.message}`, 'error');
+    } finally {
+      setIsConnectingMarketsharp(false);
+    }
+  };
+
+  const handleDisconnectMarketsharp = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectMarketsharp();
+      setMarketsharpStatus({ connected: false });
+      setMarketsharpData({ leads: [], contacts: [] });
+      showToast('Marketsharp disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncMarketsharp = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const result = await integrationManager.syncMarketsharpData();
+      setMarketsharpData(await integrationManager.getMarketsharpData());
+      showToast(`Synced ${result.leadsCount} leads and ${result.contactsCount} contacts`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
   };
 
   const handleValidateApiKey = async () => {
@@ -8977,6 +9251,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
       )}
 
       {/* Appearance Settings */}
+      {activeSettingsTab === 'appearance' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
@@ -8988,7 +9263,7 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <Sliders size={20} color={THEME.primary} />
+            <Palette size={20} color={THEME.primary} />
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
@@ -9034,15 +9309,15 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
           </button>
         </div>
 
-        <div>
+        <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Sun size={14} />
-              Dark Mode
+              Theme
             </div>
           </label>
           <select
-            value={localSettings.themeMode || 'system'}
+            value={localSettings.themeMode || 'light'}
             onChange={(e) => {
               setLocalSettings(prev => ({
                 ...prev,
@@ -9051,17 +9326,69 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
             }}
             style={selectStyle}
           >
-            <option value="system">System (Auto)</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
+            <option value="high-contrast">High Contrast</option>
+            <option value="blue">Blue</option>
+            <option value="green">Green</option>
           </select>
           <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
-            Choose your preferred theme. System option follows your device settings.
+            Choose your preferred theme color scheme.
           </p>
         </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            Font Size
+          </label>
+          <select
+            value={localSettings.appearance.fontSize || 'medium'}
+            onChange={(e) => handleAppearanceChange('fontSize', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+            <option value="extra-large">Extra Large</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            Density
+          </label>
+          <select
+            value={localSettings.appearance.density || 'comfortable'}
+            onChange={(e) => handleAppearanceChange('density', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="compact">Compact</option>
+            <option value="comfortable">Comfortable</option>
+            <option value="spacious">Spacious</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Reduce Motion
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Disable animations for accessibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.appearance.reduceMotion)}
+            onClick={() => handleAppearanceChange('reduceMotion', !localSettings.appearance.reduceMotion)}
+          >
+            <div style={toggleKnobStyle(localSettings.appearance.reduceMotion)} />
+          </button>
+        </div>
       </div>
+      )}
 
       {/* Notification Settings */}
+      {activeSettingsTab === 'notifications' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
@@ -9073,14 +9400,14 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <MessageSquare size={20} color={THEME.primary} />
+            <Bell size={20} color={THEME.primary} />
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
               Notifications
             </h3>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
-              Manage your alerts
+              Manage your alerts and reminders
             </p>
           </div>
         </div>
@@ -9102,7 +9429,48 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {localSettings.notifications.goalReminders && (
+          <div style={{ marginBottom: '16px', marginLeft: '0', paddingLeft: '0' }}>
+            <label style={labelStyle}>Goal Reminder Time</label>
+            <input
+              type="time"
+              value={localSettings.notifications.goalReminderTime || '09:00'}
+              onChange={(e) => handleNotificationChange('goalReminderTime', e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              End of Day Reminder
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Daily summary reminder
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.endOfDayReminder)}
+            onClick={() => handleNotificationChange('endOfDayReminder', !localSettings.notifications.endOfDayReminder)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.endOfDayReminder)} />
+          </button>
+        </div>
+
+        {localSettings.notifications.endOfDayReminder && (
+          <div style={{ marginBottom: '16px', marginLeft: '0', paddingLeft: '0' }}>
+            <label style={labelStyle}>End of Day Reminder Time</label>
+            <input
+              type="time"
+              value={localSettings.notifications.endOfDayReminderTime || '18:00'}
+              onChange={(e) => handleNotificationChange('endOfDayReminderTime', e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Achievement Alerts
@@ -9118,7 +9486,721 @@ function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme }) {
             <div style={toggleKnobStyle(localSettings.notifications.achievementAlerts)} />
           </button>
         </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Team Activity Alerts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify about team member activity
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.teamActivityAlerts)}
+            onClick={() => handleNotificationChange('teamActivityAlerts', !localSettings.notifications.teamActivityAlerts)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.teamActivityAlerts)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Like Notifications
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when someone likes your posts
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.likeNotifications)}
+            onClick={() => handleNotificationChange('likeNotifications', !localSettings.notifications.likeNotifications)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.likeNotifications)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Appointment Shared Notifications
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when appointments are shared
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.appointmentSharedNotifications)}
+            onClick={() => handleNotificationChange('appointmentSharedNotifications', !localSettings.notifications.appointmentSharedNotifications)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.appointmentSharedNotifications)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Leaderboard Change Alerts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when leaderboard position changes
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.leaderboardChangeAlerts)}
+            onClick={() => handleNotificationChange('leaderboardChangeAlerts', !localSettings.notifications.leaderboardChangeAlerts)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.leaderboardChangeAlerts)} />
+          </button>
+        </div>
       </div>
+      )}
+
+      {/* Privacy Settings */}
+      {activeSettingsTab === 'privacy' && (
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Shield size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Privacy & Data Management
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Control your data and privacy preferences
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Opt Out of Leaderboard
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Hide your ranking from others
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.optOutOfLeaderboard)}
+            onClick={() => handlePrivacyChange('optOutOfLeaderboard', !localSettings.privacy?.optOutOfLeaderboard)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.optOutOfLeaderboard)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Private Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Don't share achievements to team feed
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.privateMode)}
+            onClick={() => handlePrivacyChange('privateMode', !localSettings.privacy?.privateMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.privateMode)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Anonymous Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Show as "Anonymous User" in team views
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.anonymousMode)}
+            onClick={() => handlePrivacyChange('anonymousMode', !localSettings.privacy?.anonymousMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.anonymousMode)} />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: '20px', paddingTop: '20px', borderTop: `1px solid ${THEME.border}` }}>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>Export Your Data</div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>Download all your personal data as JSON</div>
+          </div>
+          <button
+            onClick={exportUserData}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: THEME.primary,
+              color: THEME.white,
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <FileDown size={16} />
+            Export My Data
+          </button>
+        </div>
+
+        <div style={{ paddingTop: '20px', borderTop: `1px solid ${THEME.border}` }}>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.danger }}>Delete Account</div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>Permanently delete your account and all data</div>
+          </div>
+          <button
+            onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: 'transparent',
+              color: THEME.danger,
+              border: `2px solid ${THEME.danger}`,
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <Trash2 size={16} />
+            Delete My Account
+          </button>
+
+          {showDeleteConfirm && (
+            <div style={{ marginTop: '16px', padding: '16px', background: '#FFE5E5', borderRadius: '8px' }}>
+              <div style={{ marginBottom: '12px', color: THEME.danger, fontWeight: '600' }}>
+                This action cannot be undone!
+              </div>
+              <div style={{ marginBottom: '12px', fontSize: '12px', color: THEME.text }}>
+                Type "DELETE" to confirm account deletion:
+              </div>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                style={inputStyle}
+              />
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button
+                  onClick={deleteUserAccount}
+                  disabled={deleteConfirmText !== 'DELETE'}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: deleteConfirmText === 'DELETE' ? THEME.danger : THEME.border,
+                    color: THEME.white,
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: deleteConfirmText === 'DELETE' ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteConfirmText('');
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: THEME.secondary,
+                    color: THEME.text,
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Accessibility Settings */}
+      {activeSettingsTab === 'accessibility' && (
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Accessibility size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Accessibility Settings
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Make the app work better for you
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Screen Reader Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Enhanced ARIA labels and announcements
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.screenReaderMode)}
+            onClick={() => handleAccessibilityChange('screenReaderMode', !localSettings.accessibility?.screenReaderMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.screenReaderMode)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Enable Keyboard Shortcuts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Use keyboard navigation (see help for shortcuts)
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.enableKeyboardShortcuts)}
+            onClick={() => handleAccessibilityChange('enableKeyboardShortcuts', !localSettings.accessibility?.enableKeyboardShortcuts)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.enableKeyboardShortcuts)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              High Contrast Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Increase contrast for better visibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.highContrast)}
+            onClick={() => handleAccessibilityChange('highContrast', !localSettings.accessibility?.highContrast)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.highContrast)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Increase Border Thickness
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Thicker borders for better visibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.increaseBorderThickness)}
+            onClick={() => handleAccessibilityChange('increaseBorderThickness', !localSettings.accessibility?.increaseBorderThickness)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.increaseBorderThickness)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Always Show Focus Indicators
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Always display focus outlines
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.alwaysShowFocusIndicators)}
+            onClick={() => handleAccessibilityChange('alwaysShowFocusIndicators', !localSettings.accessibility?.alwaysShowFocusIndicators)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.alwaysShowFocusIndicators)} />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: '0' }}>
+          <label style={labelStyle}>
+            Colorblind Mode
+          </label>
+          <select
+            value={localSettings.accessibility?.colorblindMode || 'none'}
+            onChange={(e) => handleAccessibilityChange('colorblindMode', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="none">None</option>
+            <option value="deuteranopia">Deuteranopia (Red-Green)</option>
+            <option value="protanopia">Protanopia (Red-Green)</option>
+            <option value="tritanopia">Tritanopia (Blue-Yellow)</option>
+          </select>
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+            Apply color filters to assist with color vision deficiencies
+          </p>
+        </div>
+      </div>
+      )}
+
+      {/* Integrations Settings */}
+      {activeSettingsTab === 'integrations' && (
+      <div>
+        {/* Jotform Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                Jotform Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync form submissions from Jotform
+              </p>
+            </div>
+          </div>
+
+          {!jotformStatus.connected ? (
+            <div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Jotform API Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showJotformKey ? 'text' : 'password'}
+                    value={jotformApiKey}
+                    onChange={(e) => setJotformApiKey(e.target.value)}
+                    placeholder="Enter your Jotform API key"
+                    style={{ ...inputStyle, paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowJotformKey(!showJotformKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    {showJotformKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+                  </button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Get your API key from{' '}
+                  <a href="https://www.jotform.com/myaccount/api" target="_blank" rel="noopener noreferrer" style={{ color: THEME.primary }}>
+                    Jotform Account Settings
+                  </a>
+                </p>
+              </div>
+              <button
+                onClick={handleConnectJotform}
+                disabled={isConnectingJotform || !jotformApiKey.trim()}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingJotform || !jotformApiKey.trim() ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingJotform || !jotformApiKey.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingJotform ? 'Connecting...' : 'Connect Jotform'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: jotformStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: jotformStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {jotformStatus.status === 'error' ? `Error: ${jotformStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncJotform}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectJotform}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {jotformSubmissions.length > 0 && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced Submissions: {jotformSubmissions.length}
+                  </div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {jotformSubmissions.slice(0, 10).map((sub, idx) => (
+                      <div key={idx} style={{ 
+                        padding: '8px', 
+                        background: THEME.secondary, 
+                        borderRadius: '6px',
+                        marginBottom: '6px',
+                        fontSize: '12px',
+                      }}>
+                        <div style={{ fontWeight: '600', color: THEME.text }}>
+                          {sub.formTitle || `Form ${sub.formId}`}
+                        </div>
+                        <div style={{ color: THEME.textLight, fontSize: '11px' }}>
+                          {new Date(sub.created_at || sub.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                    {jotformSubmissions.length > 10 && (
+                      <div style={{ fontSize: '11px', color: THEME.textLight, textAlign: 'center', marginTop: '8px' }}>
+                        +{jotformSubmissions.length - 10} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Marketsharp Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                Marketsharp Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync leads and contacts from Marketsharp
+              </p>
+            </div>
+          </div>
+
+          {!marketsharpStatus.connected ? (
+            <div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Marketsharp API Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showMarketsharpKey ? 'text' : 'password'}
+                    value={marketsharpApiKey}
+                    onChange={(e) => setMarketsharpApiKey(e.target.value)}
+                    placeholder="Enter your Marketsharp API key"
+                    style={{ ...inputStyle, paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMarketsharpKey(!showMarketsharpKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    {showMarketsharpKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+                  </button>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Company ID</label>
+                <input
+                  type="text"
+                  value={marketsharpCompanyId}
+                  onChange={(e) => setMarketsharpCompanyId(e.target.value)}
+                  placeholder="Enter your Marketsharp Company ID"
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                onClick={handleConnectMarketsharp}
+                disabled={isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim()}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim() ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingMarketsharp ? 'Connecting...' : 'Connect Marketsharp'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: marketsharpStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: marketsharpStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {marketsharpStatus.status === 'error' ? `Error: ${marketsharpStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncMarketsharp}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectMarketsharp}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {(marketsharpData.leads.length > 0 || marketsharpData.contacts.length > 0) && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced: {marketsharpData.leads.length} leads, {marketsharpData.contacts.length} contacts
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      )}
 
       {/* Save Button */}
       <button
