@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { getTheme, listenToSystemThemeChanges } from './lib/theme';
 import { 
   syncAllFromSupabase, 
   queueSyncOperation, 
@@ -35,61 +36,37 @@ import {
   isVoiceChatSupported,
   VOICE_OPTIONS
 } from './lib/voiceChat';
+import {
+  ensureDailySnapshots,
+  initializeSnapshots,
+  getLocalSnapshots,
+} from './lib/snapshots';
 import DebugLogger from './components/DebugLogger';
+import OnboardingFlow from './components/OnboardingFlow';
+import {
+  debounce,
+  throttle,
+  VirtualScroller,
+  memoize,
+  scheduleIdleTask
+} from './lib/performance';
+import {
+  ariaLabels,
+  accessibilityAnnouncer,
+  prefersReducedMotion,
+  focusManagement,
+  keyboardNav,
+  createSkipLink
+} from './lib/accessibility';
 
 // ========================================
-// THEME & CONSTANTS
+// CONSTANTS
 // ========================================
-
-const THEME = {
-  primary: '#0056A4',
-  primaryDark: '#003D73',
-  primaryLight: '#4A90D9',
-  secondary: '#F5F7FA',
-  accent: '#E8F4FD',
-  success: '#28A745',
-  warning: '#FFC107',
-  danger: '#DC3545',
-  white: '#FFFFFF',
-  text: '#1A1A2E',
-  textLight: '#6B7280',
-  border: '#E5E7EB',
-  gold: '#FFD700',
-  silver: '#C0C0C0',
-  bronze: '#CD7F32',
-  
-  // Expanded color palette with gradients
-  gradients: {
-    primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)',
-    success: 'linear-gradient(135deg, #28A745 0%, #5CB85C 100%)',
-    warning: 'linear-gradient(135deg, #FFC107 0%, #FFD700 100%)',
-    danger: 'linear-gradient(135deg, #DC3545 0%, #E74C3C 100%)',
-    gold: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
-    background: 'linear-gradient(135deg, #F5F7FA 0%, #E8F4FD 100%)',
-    cardHover: 'linear-gradient(135deg, rgba(0, 86, 164, 0.05) 0%, rgba(74, 144, 217, 0.05) 100%)',
-  },
-  
-  // Additional accent colors
-  accentColors: {
-    purple: '#9333EA',
-    teal: '#17A2B8',
-    orange: '#F59E0B',
-  },
-  
-  // Shadow variants for depth
-  shadows: {
-    sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
-    md: '0 2px 8px rgba(0, 0, 0, 0.08)',
-    lg: '0 4px 16px rgba(0, 0, 0, 0.12)',
-    xl: '0 8px 32px rgba(0, 0, 0, 0.16)',
-    layered: '0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04)',
-  },
-};
 
 const CATEGORIES = [
-  { id: 'reviews', name: 'Reviews', icon: Star, color: THEME.warning, defaultGoal: 5 },
-  { id: 'demos', name: 'Demos', icon: Calendar, color: THEME.success, defaultGoal: 3 },
-  { id: 'callbacks', name: 'Callbacks', icon: Phone, color: THEME.primary, defaultGoal: 10 },
+  { id: 'reviews', name: 'Reviews', icon: Star, color: '#FFC107', defaultGoal: 5 },
+  { id: 'demos', name: 'Demos', icon: Calendar, color: '#28A745', defaultGoal: 3 },
+  { id: 'callbacks', name: 'Callbacks', icon: Phone, color: '#0056A4', defaultGoal: 10 },
 ];
 
 const PRODUCT_INTERESTS = [
@@ -101,6 +78,70 @@ const PRODUCT_INTERESTS = [
   { id: 'flooring', label: 'Flooring', color: '#8B4513' },
   { id: 'bathroom', label: 'Bathroom', color: '#9333EA' },
   { id: 'solar', label: 'Solar', color: '#F59E0B' },
+];
+
+const APPOINTMENT_STATUS = [
+  { id: 'scheduled', label: 'Scheduled', color: '#0056A4', icon: Calendar },
+  { id: 'confirmed', label: 'Confirmed', color: '#28A745', icon: CheckCircle },
+  { id: 'in_progress', label: 'In Progress', color: '#FFC107', icon: Clock },
+  { id: 'completed', label: 'Completed', color: '#FFD700', icon: Check },
+  { id: 'cancelled', label: 'Cancelled', color: '#DC3545', icon: XCircle },
+  { id: 'no_show', label: 'No Show', color: '#6B7280', icon: AlertCircle },
+  { id: 'rescheduled', label: 'Rescheduled', color: '#17A2B8', icon: RefreshCw },
+  { id: 'followup_needed', label: 'Follow-up Needed', color: '#FF8C00', icon: Phone },
+];
+
+const APPOINTMENT_OUTCOMES = [
+  { id: 'sale', label: 'Sale', color: '#28A745' },
+  { id: 'no_sale', label: 'No Sale', color: '#6B7280' },
+  { id: 'callback_needed', label: 'Callback Needed', color: '#FF8C00' },
+  { id: 'proposal_sent', label: 'Proposal Sent', color: '#17A2B8' },
+  { id: 'thinking_it_over', label: 'Thinking It Over', color: '#9333EA' },
+];
+
+const TIME_SLOTS = Array.from({ length: 20 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 8;
+  const minute = i % 2 === 0 ? '00' : '30';
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour;
+  return `${displayHour}:${minute} ${period}`;
+});
+
+const DURATIONS = [
+  { value: 30, label: '30 minutes' },
+  { value: 60, label: '1 hour' },
+  { value: 90, label: '1.5 hours' },
+  { value: 120, label: '2 hours' },
+  { value: 180, label: '3 hours' },
+  { value: 240, label: '4 hours' },
+];
+
+const MOTIVATIONAL_QUOTES = [
+  "Success is the sum of small efforts repeated day in and day out.",
+  "The harder you work for something, the greater you'll feel when you achieve it.",
+  "Don't watch the clock; do what it does. Keep going.",
+  "Believe in yourself and all that you are.",
+  "Great things never come from comfort zones.",
+  "The only way to do great work is to love what you do.",
+  "Success doesn't just find you. You have to go out and get it.",
+  "Dream it. Wish it. Do it.",
+  "Little things make big days.",
+  "It's going to be hard, but hard does not mean impossible.",
+  "Don't stop when you're tired. Stop when you're done.",
+  "Wake up with determination. Go to bed with satisfaction.",
+  "Do something today that your future self will thank you for.",
+  "The key to success is to focus on goals, not obstacles.",
+  "You don't have to be great to start, but you have to start to be great.",
+  "Your limitation—it's only your imagination.",
+  "Sometimes later becomes never. Do it now.",
+  "Push yourself, because no one else is going to do it for you.",
+  "Make each day your masterpiece.",
+  "The best time to plant a tree was 20 years ago. The second best time is now.",
+  "Opportunities don't happen. You create them.",
+  "Success is what comes after you stop making excuses.",
+  "Winners make a habit of manufacturing their own positive expectations.",
+  "The secret of getting ahead is getting started.",
+  "Go the extra mile. It's never crowded there.",
 ];
 
 // ========================================
@@ -127,9 +168,9 @@ const VALIDATIONS = {
   
   date: (dateString) => {
     if (!dateString) return null; // Optional
-    const date = new Date(dateString);
+    const date = new Date(dateString + 'T00:00:00'); // Add time to avoid timezone issues
     if (isNaN(date.getTime())) return 'Invalid date';
-    if (date > new Date()) return 'Date cannot be in the future';
+    // Allow future dates for appointments
     const minDate = new Date('2020-01-01');
     if (date < minDate) return 'Date too far in the past';
     return null;
@@ -302,6 +343,17 @@ export default function WindowDepotTracker() {
   const [dailyLogs, setDailyLogs] = useState({});
   const [appointments, setAppointments] = useState([]);
   const [feed, setFeed] = useState([]);
+  const [feedReactions, setFeedReactions] = useState({});
+  const [feedFilters, setFeedFilters] = useState({
+    type: 'all',
+    sortBy: 'recent',
+    userId: null,
+    search: '',
+    showOnlyLiked: false,
+    showOnlyMine: false,
+  });
+  const [pinnedPosts, setPinnedPosts] = useState({});
+  const [unreadPosts, setUnreadPosts] = useState(new Set());
   const [activeView, setActiveView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -337,13 +389,42 @@ export default function WindowDepotTracker() {
     appearance: {
       compactMode: false,
       showAnimations: true,
+      theme: 'light',
+      fontSize: 'medium',
+      density: 'comfortable',
+      reduceMotion: false,
     },
     notifications: {
       goalReminders: true,
+      goalReminderTime: '09:00',
+      endOfDayReminder: true,
+      endOfDayReminderTime: '18:00',
       achievementAlerts: true,
+      teamActivityAlerts: true,
+      likeNotifications: true,
+      appointmentSharedNotifications: true,
+      leaderboardChangeAlerts: true,
+    },
+    privacy: {
+      optOutOfLeaderboard: false,
+      privateMode: false,
+      anonymousMode: false,
+    },
+    accessibility: {
+      screenReaderMode: false,
+      enableKeyboardShortcuts: true,
+      highContrast: false,
+      increaseBorderThickness: false,
+      alwaysShowFocusIndicators: true,
+      colorblindMode: 'none',
     },
   });
-  
+  const [themeMode, setThemeMode] = useState('light');
+  const [dailySnapshots, setDailySnapshots] = useState({});
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
+
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
   const initAttempts = useRef(0);
@@ -384,18 +465,20 @@ export default function WindowDepotTracker() {
           storage.get('currentUser', null),
           storage.get('rememberUser', false),
           storage.get('appSettings', null),
+          storage.get('themeMode', 'light'),
+          storage.get('dailySnapshots', {}),
         ];
-        
-        const timeout = new Promise((_, reject) => 
+
+        const timeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Load timeout')), 10000)
         );
-        
+
         const results = await Promise.race([
           Promise.all(loadPromises),
           timeout
         ]);
-        
-        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings] = results;
+
+        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings, savedThemeMode, loadedSnapshots] = results;
 
         // Use synced data if available, otherwise use local
         const finalUsers = syncedData?.users || loadedUsers || [];
@@ -404,6 +487,16 @@ export default function WindowDepotTracker() {
         setAppointments(syncedData?.appointments || loadedAppts || []);
         setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
+        setDailySnapshots(loadedSnapshots || {});
+
+        // Initialize snapshots from Supabase
+        if (navigator.onLine && isSupabaseConfigured) {
+          try {
+            await initializeSnapshots();
+          } catch (error) {
+            console.error('Failed to initialize snapshots:', error);
+          }
+        }
 
         // Load and apply settings
         if (savedSettings) {
@@ -442,6 +535,11 @@ export default function WindowDepotTracker() {
           }
         }
         
+        // Load and apply theme preference
+        if (savedThemeMode) {
+          setThemeMode(savedThemeMode);
+        }
+
         // Restore current user from synced users if remembered
         if (shouldRemember && savedUser) {
           // Find the user in the synced users array by ID to ensure we have the latest data
@@ -453,7 +551,7 @@ export default function WindowDepotTracker() {
             setCurrentUser(savedUser);
           }
         }
-        
+
         // Initialization complete - wait a bit before allowing saves
         await new Promise(resolve => setTimeout(resolve, 500));
         hasInitialized.current = true;
@@ -516,7 +614,293 @@ export default function WindowDepotTracker() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ========================================
+  // SYSTEM THEME PREFERENCE DETECTION
+  // ========================================
+
+  useEffect(() => {
+    if (themeMode !== 'system') return;
+
+    const unsubscribe = listenToSystemThemeChanges(() => {
+      // Trigger a re-render by toggling theme state when system preference changes
+      setThemeMode(prev => (prev === 'system' ? 'system' : prev));
+    });
+
+    return unsubscribe;
+  }, [themeMode]);
+
+  // ========================================
+  // COMPUTE CURRENT THEME
+  // ========================================
+
+  const currentTheme = useMemo(() => getTheme(themeMode), [themeMode]);
+
+  // ========================================
+  // TOAST NOTIFICATION SYSTEM
+  // ========================================
   
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // ========================================
+  // TRACKING FUNCTIONS
+  // ========================================
+
+  const handleIncrement = useCallback(async (category) => {
+    if (!currentUser) return;
+    
+    const today = getToday();
+    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
+    const goal = currentUser.goals[category];
+    const newCount = currentCount + 1;
+    
+    // Update local state immediately
+    const updatedLogs = {
+      ...dailyLogs,
+      [today]: {
+        ...dailyLogs[today],
+        [currentUser.id]: {
+          ...dailyLogs[today]?.[currentUser.id],
+          [category]: newCount,
+        },
+      },
+    };
+    
+    setDailyLogs(updatedLogs);
+    await storage.set('dailyLogs', updatedLogs);
+    
+    // Sync to Supabase
+    try {
+      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+        const { error } = await supabase
+          .from('daily_logs')
+          .upsert({
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          }, {
+            onConflict: 'user_id,date,category',
+          });
+        
+        if (error) throw error;
+      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+        // Queue for sync if offline
+        await queueSyncOperation({
+          type: 'upsert',
+          table: 'daily_logs',
+          conflictKey: 'user_id,date,category',
+          data: {
+            user_id: currentUser.id,
+            date: today,
+            category: category,
+            count: newCount,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to sync daily log:', error);
+    }
+    
+    // Auto-post to feed for reviews and callbacks
+    if (category === 'reviews' || category === 'callbacks') {
+      const messages = {
+        reviews: [
+          `🌟 ${currentUser.name} got a review!`,
+          `⭐ ${currentUser.name} secured another review!`,
+          `✨ ${currentUser.name} is collecting reviews!`,
+        ],
+        callbacks: [
+          `📞 ${currentUser.name} made a callback!`,
+          `☎️ ${currentUser.name} completed a callback!`,
+          `💬 ${currentUser.name} is reaching out!`,
+        ],
+      };
+      
+      const messageList = messages[category];
+      const message = messageList[Math.floor(Math.random() * messageList.length)];
+      
+      // Create post in Supabase
+      try {
+        if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
+          const { data: postData, error: postError } = await supabase
+            .from('feed_posts')
+            .insert({
+              user_id: currentUser.id,
+              content: sanitizeInput(message),
+              type: 'auto',
+            })
+            .select(`
+              *,
+              user:users(name)
+            `)
+            .single();
+          
+          if (!postError && postData) {
+            const newPost = {
+              id: postData.id,
+              userId: postData.user_id,
+              userName: postData.user?.name || currentUser.name,
+              content: postData.content,
+              timestamp: new Date(postData.created_at).getTime(),
+              likes: [],
+              comments: [],
+              isAuto: true,
+            };
+            const updatedFeed = [newPost, ...feed];
+            setFeed(updatedFeed);
+            await storage.set('feed', updatedFeed);
+          }
+        } else {
+          // Offline: create local post, queue for sync
+          const tempPostId = `temp_${Date.now()}`;
+          const newPost = {
+            id: tempPostId,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            content: sanitizeInput(message),
+            timestamp: Date.now(),
+            likes: [],
+            comments: [],
+            isAuto: true,
+          };
+          const updatedFeed = [newPost, ...feed];
+          setFeed(updatedFeed);
+          await storage.set('feed', updatedFeed);
+          
+          if (!currentUser.id.startsWith('temp_')) {
+            await queueSyncOperation({
+              type: 'insert',
+              table: 'feed_posts',
+              data: {
+                user_id: currentUser.id,
+                content: sanitizeInput(message),
+                type: 'auto',
+              },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to create feed post:', error);
+      }
+    }
+    
+    // Check for goal completion
+    if (newCount === goal) {
+      setShowCelebration(true);
+      setTimeout(() => setShowCelebration(false), 2000);
+      showToast(`🎉 ${category} goal complete!`, 'success');
+    }
+  }, [currentUser, dailyLogs, showToast, feed]);
+
+  // ========================================
+  // ONBOARDING CHECK
+  // ========================================
+
+  useEffect(() => {
+    if (!isInitialized || isLoading || currentUser) return;
+
+    const onboardingComplete = localStorage.getItem('onboarding_completed');
+    if (!onboardingComplete) {
+      setShowOnboarding(true);
+    }
+  }, [isInitialized, isLoading, currentUser]);
+
+  // ========================================
+  // REDUCED MOTION DETECTION
+  // ========================================
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handleChange = (e) => {
+      setReduceMotion(e.matches);
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  // ========================================
+  // ACCESSIBILITY & KEYBOARD SHORTCUTS
+  // ========================================
+
+  useEffect(() => {
+    createSkipLink();
+
+    const handleKeyDown = (e) => {
+      // Quick increment shortcuts (when on Dashboard, no modifiers)
+      if (activeView === 'dashboard' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const target = e.target;
+        // Don't trigger if user is typing in an input
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+        switch (e.key.toLowerCase()) {
+          case 'r':
+            e.preventDefault();
+            handleIncrement('reviews');
+            showToast('Review added! (Press R to add more)', 'success');
+            break;
+          case 'd':
+            e.preventDefault();
+            handleIncrement('demos');
+            showToast('Demo added! (Press D to add more)', 'success');
+            break;
+          case 'c':
+            e.preventDefault();
+            handleIncrement('callbacks');
+            showToast('Callback added! (Press C to add more)', 'success');
+            break;
+          default:
+            break;
+        }
+      }
+
+      // Navigation shortcuts (Ctrl/Cmd + key)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        switch (e.key.toLowerCase()) {
+          case 'd':
+            e.preventDefault();
+            setActiveView('dashboard');
+            accessibilityAnnouncer.announce('Switched to Dashboard');
+            break;
+          case 'g':
+            e.preventDefault();
+            setActiveView('goals');
+            accessibilityAnnouncer.announce('Switched to Goals');
+            break;
+          case 'a':
+            e.preventDefault();
+            setActiveView('appointments');
+            accessibilityAnnouncer.announce('Switched to Appointments');
+            break;
+          case 'f':
+            e.preventDefault();
+            setActiveView('feed');
+            accessibilityAnnouncer.announce('Switched to Feed');
+            break;
+          case 'l':
+            e.preventDefault();
+            setActiveView('leaderboard');
+            accessibilityAnnouncer.announce('Switched to Leaderboard');
+            break;
+          default:
+            break;
+        }
+      } else if (e.key === 'Escape' && showOnboarding) {
+        setShowOnboarding(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      accessibilityAnnouncer.cleanup();
+    };
+  }, [showOnboarding, activeView, handleIncrement, showToast]);
+
   // ========================================
   // REAL-TIME SUBSCRIPTIONS
   // ========================================
@@ -771,7 +1155,50 @@ export default function WindowDepotTracker() {
       updatePresence({ currentView: activeView });
     }
   }, [activeView, currentUser]);
-  
+
+  // Refresh feed when navigating to feed view
+  useEffect(() => {
+    if (activeView === 'feed' && isInitialized && isOnline && isSupabaseConfigured) {
+      const refreshFeed = async () => {
+        try {
+          const { syncFeedFromSupabase } = await import('./lib/sync');
+          const updatedFeed = await syncFeedFromSupabase();
+          if (updatedFeed) {
+            setFeed(updatedFeed);
+          }
+        } catch (error) {
+          console.error('Failed to refresh feed:', error);
+        }
+      };
+      refreshFeed();
+    }
+  }, [activeView, isInitialized, isOnline, isSupabaseConfigured]);
+
+  // ========================================
+  // ENSURE DAILY SNAPSHOTS
+  // ========================================
+
+  useEffect(() => {
+    if (!isInitialized || !users.length || !Object.keys(dailyLogs).length) {
+      return;
+    }
+
+    // Create snapshots for yesterday if not already created
+    const ensureSnapshots = async () => {
+      try {
+        await ensureDailySnapshots(users, dailyLogs);
+        // Reload snapshots from storage
+        const updatedSnapshots = await getLocalSnapshots();
+        setDailySnapshots(updatedSnapshots);
+      } catch (error) {
+        console.error('Failed to ensure daily snapshots:', error);
+      }
+    };
+
+    ensureSnapshots();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, users.length, Object.keys(dailyLogs).length]);
+
   // ========================================
   // AUTO-SAVE WITH DEBOUNCING
   // ========================================
@@ -834,7 +1261,7 @@ export default function WindowDepotTracker() {
   
   useEffect(() => {
     if (!hasInitialized.current) return;
-    
+
     const saveTimeout = setTimeout(async () => {
       try {
         if (rememberUser) {
@@ -845,18 +1272,23 @@ export default function WindowDepotTracker() {
         console.error('Auto-save user preference failed:', error);
       }
     }, 500);
-    
+
     return () => clearTimeout(saveTimeout);
   }, [currentUser, rememberUser]);
-  
-  // ========================================
-  // TOAST NOTIFICATION SYSTEM
-  // ========================================
-  
-  const showToast = useCallback((message, type = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
+
+  useEffect(() => {
+    if (!hasInitialized.current) return;
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await storage.set('dailySnapshots', dailySnapshots);
+      } catch (error) {
+        console.error('Auto-save snapshots failed:', error);
+      }
+    }, 1000);
+
+    return () => clearTimeout(saveTimeout);
+  }, [dailySnapshots]);
   
   // ========================================
   // USER MANAGEMENT
@@ -1073,6 +1505,12 @@ export default function WindowDepotTracker() {
         });
       }
 
+      // Handle theme mode if included in settings
+      if (newSettings.themeMode) {
+        setThemeMode(newSettings.themeMode);
+        await storage.set('themeMode', newSettings.themeMode);
+      }
+
       showToast('Settings saved', 'success');
       return true;
     } catch (error) {
@@ -1083,155 +1521,8 @@ export default function WindowDepotTracker() {
   }, [appSettings, showToast]);
 
   // ========================================
-  // TRACKING FUNCTIONS
+  // TRACKING FUNCTIONS (continued)
   // ========================================
-
-  const handleIncrement = useCallback(async (category) => {
-    if (!currentUser) return;
-    
-    const today = getToday();
-    const currentCount = dailyLogs[today]?.[currentUser.id]?.[category] || 0;
-    const goal = currentUser.goals[category];
-    const newCount = currentCount + 1;
-    
-    // Update local state immediately
-    const updatedLogs = {
-      ...dailyLogs,
-      [today]: {
-        ...dailyLogs[today],
-        [currentUser.id]: {
-          ...dailyLogs[today]?.[currentUser.id],
-          [category]: newCount,
-        },
-      },
-    };
-    
-    setDailyLogs(updatedLogs);
-    await storage.set('dailyLogs', updatedLogs);
-    
-    // Sync to Supabase
-    try {
-      if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-        const { error } = await supabase
-          .from('daily_logs')
-          .upsert({
-            user_id: currentUser.id,
-            date: today,
-            category: category,
-            count: newCount,
-          }, {
-            onConflict: 'user_id,date,category',
-          });
-        
-        if (error) throw error;
-      } else if (isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-        // Queue for sync if offline
-        await queueSyncOperation({
-          type: 'upsert',
-          table: 'daily_logs',
-          conflictKey: 'user_id,date,category',
-          data: {
-            user_id: currentUser.id,
-            date: today,
-            category: category,
-            count: newCount,
-          },
-        });
-      }
-    } catch (error) {
-      console.error('Failed to sync daily log:', error);
-    }
-    
-    // Auto-post to feed for reviews and callbacks
-    if (category === 'reviews' || category === 'callbacks') {
-      const messages = {
-        reviews: [
-          `🌟 ${currentUser.name} got a review!`,
-          `⭐ ${currentUser.name} secured another review!`,
-          `✨ ${currentUser.name} is collecting reviews!`,
-        ],
-        callbacks: [
-          `📞 ${currentUser.name} made a callback!`,
-          `☎️ ${currentUser.name} completed a callback!`,
-          `💬 ${currentUser.name} is reaching out!`,
-        ],
-      };
-      
-      const messageList = messages[category];
-      const message = messageList[Math.floor(Math.random() * messageList.length)];
-      
-      // Create post in Supabase
-      try {
-        if (navigator.onLine && isSupabaseConfigured && !currentUser.id.startsWith('temp_')) {
-          const { data: postData, error: postError } = await supabase
-            .from('feed_posts')
-            .insert({
-              user_id: currentUser.id,
-              content: sanitizeInput(message),
-              type: 'auto',
-            })
-            .select(`
-              *,
-              user:users(name)
-            `)
-            .single();
-          
-          if (!postError && postData) {
-            const newPost = {
-              id: postData.id,
-              userId: postData.user_id,
-              userName: postData.user?.name || currentUser.name,
-              content: postData.content,
-              timestamp: new Date(postData.created_at).getTime(),
-              likes: [],
-              comments: [],
-              isAuto: true,
-            };
-            const updatedFeed = [newPost, ...feed];
-            setFeed(updatedFeed);
-            await storage.set('feed', updatedFeed);
-          }
-        } else {
-          // Offline: create local post, queue for sync
-          const tempPostId = `temp_${Date.now()}`;
-          const newPost = {
-            id: tempPostId,
-            userId: currentUser.id,
-            userName: currentUser.name,
-            content: sanitizeInput(message),
-            timestamp: Date.now(),
-            likes: [],
-            comments: [],
-            isAuto: true,
-          };
-          const updatedFeed = [newPost, ...feed];
-          setFeed(updatedFeed);
-          await storage.set('feed', updatedFeed);
-          
-          if (!currentUser.id.startsWith('temp_')) {
-            await queueSyncOperation({
-              type: 'insert',
-              table: 'feed_posts',
-              data: {
-                user_id: currentUser.id,
-                content: sanitizeInput(message),
-                type: 'auto',
-              },
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Failed to create feed post:', error);
-      }
-    }
-    
-    // Check for goal completion
-    if (newCount === goal) {
-      setShowCelebration(true);
-      setTimeout(() => setShowCelebration(false), 2000);
-      showToast(`🎉 ${category} goal complete!`, 'success');
-    }
-  }, [currentUser, dailyLogs, showToast, feed]);
   
   const handleDecrement = useCallback(async (category) => {
     if (!currentUser) return;
@@ -1323,7 +1614,11 @@ export default function WindowDepotTracker() {
     }
     
     try {
-      const appointmentDate = appointmentData.date || getToday();
+      // Ensure date is in YYYY-MM-DD format to avoid timezone issues
+      let appointmentDate = appointmentData.date || getToday();
+      // Parse and reformat to ensure consistent date handling
+      const dateObj = new Date(appointmentDate + 'T12:00:00'); // Use noon to avoid timezone shifts
+      appointmentDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
       const appointmentDataForDB = {
         user_id: currentUser.id,
         customer_name: sanitizeInput(appointmentData.customerName),
@@ -1738,7 +2033,132 @@ export default function WindowDepotTracker() {
       showToast('Failed to delete post', 'error');
     }
   }, [showToast, feed]);
-  
+
+  const addReaction = useCallback(async (postId, emoji) => {
+    if (!currentUser || !postId) return;
+
+    try {
+      const reactionKey = `${postId}_reactions`;
+      const reactions = feedReactions[reactionKey] || {};
+      const userReactions = reactions[currentUser.id] || [];
+      const hasReacted = userReactions.includes(emoji);
+
+      if (hasReacted) {
+        const updatedUserReactions = userReactions.filter(e => e !== emoji);
+        const updatedReactions = {
+          ...reactions,
+          [currentUser.id]: updatedUserReactions.length > 0 ? updatedUserReactions : undefined,
+        };
+        if (!updatedUserReactions.length) delete updatedReactions[currentUser.id];
+
+        setFeedReactions(prev => ({
+          ...prev,
+          [reactionKey]: updatedReactions,
+        }));
+      } else {
+        setFeedReactions(prev => ({
+          ...prev,
+          [reactionKey]: {
+            ...reactions,
+            [currentUser.id]: [...userReactions, emoji],
+          },
+        }));
+      }
+
+      if (navigator.onLine && isSupabaseConfigured && !postId.startsWith('temp_')) {
+        await queueSyncOperation({
+          type: hasReacted ? 'delete' : 'upsert',
+          table: 'feed_reactions',
+          data: {
+            post_id: postId,
+            user_id: currentUser.id,
+            emoji,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+  }, [currentUser, feedReactions]);
+
+  const togglePinPost = useCallback(async (postId) => {
+    if (!currentUser || currentUser.role !== 'manager') return;
+
+    try {
+      const isPinned = pinnedPosts[postId];
+
+      if (isPinned) {
+        const updated = { ...pinnedPosts };
+        delete updated[postId];
+        setPinnedPosts(updated);
+      } else {
+        const pinnedCount = Object.values(pinnedPosts).filter(Boolean).length;
+        if (pinnedCount < 3) {
+          setPinnedPosts(prev => ({ ...prev, [postId]: true }));
+        } else {
+          showToast('Maximum 3 pinned posts allowed', 'warning');
+          return;
+        }
+      }
+
+      if (navigator.onLine && isSupabaseConfigured) {
+        await queueSyncOperation({
+          type: 'update',
+          table: 'feed_posts',
+          id: postId,
+          data: { is_pinned: !isPinned },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle pin:', error);
+    }
+  }, [currentUser, pinnedPosts, showToast]);
+
+  const updateFeedFilters = useCallback((newFilters) => {
+    setFeedFilters(prev => ({ ...prev, ...newFilters }));
+  }, []);
+
+  const markPostsAsRead = useCallback(() => {
+    setUnreadPosts(new Set());
+  }, []);
+
+  const getFilteredAndSortedFeed = useCallback(() => {
+    let filtered = feed.filter(post => {
+      if (feedFilters.type !== 'all' && post.type !== feedFilters.type) return false;
+      if (feedFilters.userId && post.userId !== feedFilters.userId) return false;
+      if (feedFilters.showOnlyMine && post.userId !== currentUser?.id) return false;
+      if (feedFilters.showOnlyLiked && !(post.likes || []).includes(currentUser?.id)) return false;
+      if (feedFilters.search) {
+        const searchLower = feedFilters.search.toLowerCase();
+        return post.content.toLowerCase().includes(searchLower) ||
+               post.userName.toLowerCase().includes(searchLower);
+      }
+      return true;
+    });
+
+    const pinned = filtered.filter(p => pinnedPosts[p.id]);
+    const unpinned = filtered.filter(p => !pinnedPosts[p.id]);
+
+    unpinned.sort((a, b) => {
+      switch (feedFilters.sortBy) {
+        case 'popular':
+          return (b.likes?.length || 0) - (a.likes?.length || 0);
+        case 'commented':
+          return (b.comments?.length || 0) - (a.comments?.length || 0);
+        case 'trending':
+          const scoreB = ((b.likes?.length || 0) * 1.5) + (b.comments?.length || 0);
+          const scoreA = ((a.likes?.length || 0) * 1.5) + (a.comments?.length || 0);
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return b.timestamp - a.timestamp;
+        case 'recent':
+        default:
+          return b.timestamp - a.timestamp;
+      }
+    });
+
+    return [...pinned, ...unpinned];
+  }, [feed, feedFilters, currentUser, pinnedPosts]);
+
   // ========================================
   // CALCULATED DATA
   // ========================================
@@ -1831,15 +2251,15 @@ export default function WindowDepotTracker() {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        background: THEME.secondary,
+        background: currentTheme.secondary,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{
             width: '60px',
             height: '60px',
-            border: `4px solid ${THEME.accent}`,
-            borderTop: `4px solid ${THEME.primary}`,
+            border: `4px solid ${currentTheme.accent}`,
+            borderTop: `4px solid ${currentTheme.primary}`,
             borderRadius: '50%',
             margin: '0 auto 20px',
             animation: 'spin 1s linear infinite',
@@ -1850,7 +2270,7 @@ export default function WindowDepotTracker() {
               100% { transform: rotate(360deg); }
             }
           `}</style>
-          <div style={{ color: THEME.text, fontSize: '18px', fontWeight: '600' }}>
+          <div style={{ color: currentTheme.text, fontSize: '18px', fontWeight: '600' }}>
             Loading Window Depot Tracker...
           </div>
         </div>
@@ -1863,31 +2283,49 @@ export default function WindowDepotTracker() {
   // ========================================
   
   if (!currentUser) {
-    return <UserSelection 
+    return <UserSelection
       users={users}
       onSelectUser={setCurrentUser}
       onCreateUser={createUser}
       rememberUser={rememberUser}
       onRememberChange={setRememberUser}
+      theme={currentTheme}
     />;
   }
-  
+
+  // ========================================
+  // RENDER: ONBOARDING FLOW
+  // ========================================
+
+  if (showOnboarding) {
+    return (
+      <OnboardingFlow
+        onComplete={() => {
+          setShowOnboarding(false);
+          accessibilityAnnouncer.announce('Onboarding completed. Welcome to Goal Tracker!', false);
+        }}
+        theme={currentTheme}
+      />
+    );
+  }
+
   // ========================================
   // RENDER: MAIN APP
   // ========================================
-  
+
   return (
     <div style={{
       minHeight: '100vh',
-      background: THEME.gradients.background,
+      background: currentTheme.gradients.background,
       fontFamily: 'var(--font-body)',
       paddingBottom: '80px',
+      id: 'main-content',
     }}>
       {/* Offline Banner */}
       {!isOnline && (
         <div style={{
-          background: THEME.warning,
-          color: THEME.text,
+          background: currentTheme.warning,
+          color: currentTheme.text,
           padding: '12px',
           textAlign: 'center',
           fontWeight: '600',
@@ -1908,11 +2346,11 @@ export default function WindowDepotTracker() {
           top: '20px',
           right: '20px',
           zIndex: 10000,
-          background: toast.type === 'success' ? THEME.success :
-                     toast.type === 'error' ? THEME.danger :
-                     toast.type === 'warning' ? THEME.warning :
-                     THEME.primary,
-          color: THEME.white,
+          background: toast.type === 'success' ? currentTheme.success :
+                     toast.type === 'error' ? currentTheme.danger :
+                     toast.type === 'warning' ? currentTheme.warning :
+                     currentTheme.primary,
+          color: currentTheme.white,
           padding: '16px 24px',
           borderRadius: '8px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -1951,14 +2389,14 @@ export default function WindowDepotTracker() {
           animation: 'fadeIn 0.3s ease-out',
         }}>
           <div style={{
-            background: THEME.white,
+            background: currentTheme.white,
             padding: '40px',
             borderRadius: '20px',
             textAlign: 'center',
             animation: 'scaleIn 0.3s ease-out',
           }}>
             <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎉</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: THEME.primary }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: currentTheme.primary }}>
               Goal Complete!
             </div>
           </div>
@@ -1977,10 +2415,10 @@ export default function WindowDepotTracker() {
       
       {/* Header */}
       <div style={{
-        background: THEME.gradients.primary,
-        color: THEME.white,
+        background: currentTheme.gradients.primary,
+        color: currentTheme.white,
         padding: '24px 20px',
-        boxShadow: THEME.shadows.layered,
+        boxShadow: currentTheme.shadows.layered,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <h1 style={{ 
@@ -1992,11 +2430,46 @@ export default function WindowDepotTracker() {
           }}>
             Window Depot Milwaukee
           </h1>
-          {isOnline ? (
-            <Wifi size={20} style={{ opacity: 0.8 }} />
-          ) : (
-            <WifiOff size={20} />
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Theme Toggle */}
+            <button
+              onClick={() => {
+                const newMode = themeMode === 'light' ? 'dark' : 'light';
+                setThemeMode(newMode);
+                storage.set('themeMode', newMode);
+              }}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.25)',
+                border: 'none',
+                color: currentTheme.white,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s ease',
+                fontSize: '20px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.35)';
+                e.currentTarget.style.transform = 'scale(1.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              title={themeMode === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {themeMode === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            {isOnline ? (
+              <Wifi size={20} style={{ opacity: 0.8 }} />
+            ) : (
+              <WifiOff size={20} />
+            )}
+          </div>
         </div>
         <div style={{ 
           fontSize: '15px', 
@@ -2018,7 +2491,7 @@ export default function WindowDepotTracker() {
             background: 'rgba(255,255,255,0.25)',
             border: 'none',
             borderRadius: '8px',
-            color: THEME.white,
+            color: currentTheme.white,
             fontSize: '13px',
             fontWeight: '600',
             cursor: 'pointer',
@@ -2040,32 +2513,37 @@ export default function WindowDepotTracker() {
       <div style={{ padding: '20px' }}>
         {activeView === 'dashboard' && (
           <div style={{ display: 'grid', gap: '20px' }}>
-            <Dashboard 
+            <Dashboard
               currentUser={currentUser}
               todayStats={todayStats}
               weekStats={weekStats}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
+              dailyLogs={dailyLogs}
+              theme={currentTheme}
+              showToast={showToast}
             />
-            <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} />
+            <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} theme={currentTheme} />
           </div>
         )}
-        
+
         {activeView === 'goals' && (
           <Goals
             currentUser={currentUser}
             onUpdateGoals={(goals) => updateUserGoals(currentUser.id, goals)}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'appointments' && (
           <Appointments
             appointments={appointments.filter(a => a.userId === currentUser.id)}
             onAdd={addAppointment}
             onDelete={deleteAppointment}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'feed' && (
           <Feed
             feed={feed}
@@ -2075,17 +2553,27 @@ export default function WindowDepotTracker() {
             onAddComment={addComment}
             onEditPost={editPost}
             onDeletePost={deletePost}
+            theme={currentTheme}
           />
         )}
         
         {activeView === 'leaderboard' && (
-          <Leaderboard leaderboard={leaderboard} currentUser={currentUser} />
+          <Leaderboard users={users} dailyLogs={dailyLogs} currentUser={currentUser} theme={currentTheme} />
         )}
-        
+
+        {activeView === 'history' && (
+          <HistoryView
+            currentUser={currentUser}
+            users={users}
+            dailyLogs={dailyLogs}
+            theme={currentTheme}
+          />
+        )}
+
         {activeView === 'team' && currentUser.role === 'manager' && (
-          <TeamView users={users} dailyLogs={dailyLogs} />
+          <TeamView users={users} dailyLogs={dailyLogs} theme={currentTheme} />
         )}
-        
+
         {activeView === 'admin' && currentUser.role === 'manager' && (
           <AdminPanel
             users={users}
@@ -2093,17 +2581,19 @@ export default function WindowDepotTracker() {
             onDeleteUser={deleteUser}
             onUpdateGoals={updateUserGoals}
             onExport={exportData}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'reports' && currentUser.role === 'manager' && (
           <Reports
             users={users}
             dailyLogs={dailyLogs}
             appointments={appointments}
+            theme={currentTheme}
           />
         )}
-        
+
         {activeView === 'chatbot' && (
           <Chatbot
             currentUser={currentUser}
@@ -2112,6 +2602,7 @@ export default function WindowDepotTracker() {
             onIncrement={handleIncrement}
             appSettings={appSettings}
             setAppSettings={setAppSettings}
+            theme={currentTheme}
           />
         )}
 
@@ -2119,6 +2610,21 @@ export default function WindowDepotTracker() {
           <SettingsPage
             settings={appSettings}
             onSaveSettings={saveSettings}
+            currentThemeMode={themeMode}
+            theme={currentTheme}
+            currentUser={currentUser}
+            users={users}
+            setUsers={setUsers}
+            dailyLogs={dailyLogs}
+            appointments={appointments}
+            feed={feed}
+            setDailyLogs={setDailyLogs}
+            setAppointments={setAppointments}
+            setFeed={setFeed}
+            setCurrentUser={setCurrentUser}
+            showToast={showToast}
+            isSupabaseConfigured={isSupabaseConfigured}
+            isOnline={isOnline}
           />
         )}
       </div>
@@ -2128,6 +2634,7 @@ export default function WindowDepotTracker() {
         activeView={activeView}
         onViewChange={setActiveView}
         isManager={currentUser.role === 'manager'}
+        theme={currentTheme}
       />
       
       {/* Debug Logger */}
@@ -2140,7 +2647,8 @@ export default function WindowDepotTracker() {
 // USER SELECTION COMPONENT
 // ========================================
 
-function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onRememberChange }) {
+function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onRememberChange, theme }) {
+  const THEME = theme || { /* fallback to light theme if needed */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
   const [mode, setMode] = useState(users.length === 0 ? 'create' : 'select');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('employee');
@@ -2169,7 +2677,6 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
         width: '100%',
         boxShadow: THEME.shadows.xl,
         border: `1px solid ${THEME.border}`,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
       }}>
         <div style={{
           textAlign: 'center',
@@ -2413,11 +2920,206 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // DASHBOARD COMPONENT
 // ========================================
 
-function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement }) {
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme, showToast }) {
+  const THEME = theme;
   const [celebratingCategory, setCelebratingCategory] = useState(null);
-  
+  const [undoHistory, setUndoHistory] = useState([]);
+
+  // ========================================
+  // STREAK CALCULATOR
+  // ========================================
+
+  const calculateStreaks = useMemo(() => {
+    if (!currentUser || !dailyLogs) {
+      return { currentStreak: 0, bestStreak: 0 };
+    }
+
+    // const today = getToday(); // TODO: For future use - planned feature enhancement
+    const dates = Object.keys(dailyLogs).filter(date => dailyLogs[date][currentUser.id]).sort().reverse();
+
+    let currentStreak = 0;
+    let bestStreak = 0;
+    let tempStreak = 0;
+
+    // Check consecutive days starting from today
+    for (let i = 0; i < dates.length; i++) {
+      const dateStr = dates[i];
+      const dayLogs = dailyLogs[dateStr]?.[currentUser.id];
+
+      if (!dayLogs) continue;
+
+      const allGoalsMet =
+        (dayLogs.reviews || 0) >= currentUser.goals.reviews &&
+        (dayLogs.demos || 0) >= currentUser.goals.demos &&
+        (dayLogs.callbacks || 0) >= currentUser.goals.callbacks;
+
+      if (allGoalsMet) {
+        tempStreak++;
+        // Check if this is consecutive from today
+        if (i === 0 || isConsecutiveDate(dateStr, dates[i - 1])) {
+          currentStreak = tempStreak;
+        }
+        bestStreak = Math.max(bestStreak, tempStreak);
+      } else {
+        tempStreak = 0;
+      }
+    }
+
+    return { currentStreak, bestStreak };
+  }, [currentUser, dailyLogs]);
+
+  const isConsecutiveDate = (date1, date2) => {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    const diffTime = Math.abs(d2 - d1);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 1;
+  };
+
+  // ========================================
+  // UNDO HISTORY MANAGEMENT
+  // ========================================
+
+  const addToHistory = useCallback((action) => {
+    const timestamp = Date.now();
+    setUndoHistory(prev => {
+      const newHistory = [{ ...action, timestamp }, ...prev];
+      return newHistory.slice(0, 5); // Keep only last 5
+    });
+  }, []);
+
+  const performUndo = useCallback(() => {
+    if (undoHistory.length === 0) return;
+
+    const lastAction = undoHistory[0];
+    const { categoryId, type } = lastAction;
+
+    if (type === 'increment') {
+      onDecrement(categoryId);
+    } else if (type === 'decrement') {
+      onIncrement(categoryId);
+    }
+
+    setUndoHistory(prev => prev.slice(1));
+  }, [undoHistory, onIncrement, onDecrement]);
+
+  // ========================================
+  // PACE INDICATOR
+  // ========================================
+
+  const paceIndicator = useMemo(() => {
+    const weekStart = getWeekStart();
+    const today = getToday();
+    const daysInWeek = Math.ceil((new Date(today) - new Date(weekStart)) / (1000 * 60 * 60 * 24)) + 1;
+    const weekProgress = daysInWeek / 7;
+
+    const messages = [];
+
+    CATEGORIES.forEach(category => {
+      const weekCount = weekStats[category.id] || 0;
+      const weekGoal = currentUser.goals[category.id] * 7;
+      const paceGoal = weekGoal * weekProgress;
+
+      if (weekCount >= paceGoal + currentUser.goals[category.id]) {
+        messages.push({ category: category.name, status: 'ahead', text: `Ahead of pace on ${category.name}!` });
+      } else if (weekCount < paceGoal - currentUser.goals[category.id]) {
+        const needed = Math.ceil((weekGoal - weekCount) / (8 - daysInWeek));
+        messages.push({ category: category.name, status: 'behind', text: `Need ${needed} more ${category.name.toLowerCase()}/day` });
+      } else {
+        messages.push({ category: category.name, status: 'on-track', text: `On track with ${category.name}!` });
+      }
+    });
+
+    return messages;
+  }, [currentUser, weekStats]);
+
+  // ========================================
+  // WEEK PROGRESS MINI-CHART DATA
+  // ========================================
+
+  const last7Days = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const dayLogs = dailyLogs[dateStr]?.[currentUser.id];
+      const total = (dayLogs?.reviews || 0) + (dayLogs?.demos || 0) + (dayLogs?.callbacks || 0);
+      days.push({
+        date: dateStr,
+        name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        total: total,
+      });
+    }
+    return days;
+  }, [currentUser, dailyLogs]);
+
+  const maxDay = Math.max(...last7Days.map(d => d.total), 1);
+
+  // ========================================
+  // GOAL INSIGHTS
+  // ========================================
+
+  const goalInsights = useMemo(() => {
+    const insights = [];
+    const now = new Date();
+    const hour = now.getHours();
+
+    // Time of day insights
+    if (hour < 12 && weekStats.reviews < currentUser.goals.reviews * 2) {
+      insights.push("You're usually more productive in the morning - start strong!");
+    } else if (hour >= 14 && hour < 17 && todayStats.reviews === 0) {
+      insights.push("Afternoon slump? Time to get some reviews done!");
+    }
+
+    // Category performance
+    const reviewRatio = todayStats.reviews / currentUser.goals.reviews;
+    const demoRatio = todayStats.demos / currentUser.goals.demos;
+    const callbackRatio = todayStats.callbacks / currentUser.goals.callbacks;
+
+    if (demoRatio < 0.5 && reviewRatio > 0.8) {
+      insights.push("You're crushing reviews! Schedule more demos to follow up.");
+    }
+
+    if (callbackRatio < 0.3 && weekStats.callbacks > 0) {
+      insights.push("Callbacks are trailing. Consider a callback blitz!");
+    }
+
+    if (reviewRatio >= 1 && demoRatio >= 1 && callbackRatio >= 1) {
+      insights.push("Excellent balance across all categories today!");
+    }
+
+    // Weekly momentum
+    if (last7Days.length >= 3) {
+      const recentAvg = last7Days.slice(-3).reduce((sum, d) => sum + d.total, 0) / 3;
+      const earlierAvg = last7Days.slice(0, 3).reduce((sum, d) => sum + d.total, 0) / 3;
+
+      if (recentAvg > earlierAvg * 1.2) {
+        insights.push("Great momentum this week! Keep the energy high!");
+      } else if (recentAvg < earlierAvg * 0.8 && earlierAvg > 0) {
+        insights.push("Energy is dipping. Time to refocus!");
+      }
+    }
+
+    return insights.length > 0 ? insights : ["Keep pushing towards your goals!"];
+  }, [currentUser, todayStats, weekStats, last7Days, calculateStreaks]);
+
+  // ========================================
+  // DAILY MOTIVATIONAL QUOTE
+  // ========================================
+
+  const dailyQuote = useMemo(() => {
+    // Use today's date to consistently pick the same quote all day
+    const today = new Date();
+    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
+    const quoteIndex = dayOfYear % MOTIVATIONAL_QUOTES.length;
+    return MOTIVATIONAL_QUOTES[quoteIndex];
+  }, []);
+
   const handleIncrement = (categoryId) => {
     onIncrement(categoryId);
+    addToHistory({ categoryId, type: 'increment' });
+
     const newCount = (todayStats[categoryId] || 0) + 1;
     const goal = currentUser.goals[categoryId];
     if (newCount >= goal) {
@@ -2425,19 +3127,64 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
       setTimeout(() => setCelebratingCategory(null), 2000);
     }
   };
-  
+
+  const handleDecrement = (categoryId) => {
+    onDecrement(categoryId);
+    addToHistory({ categoryId, type: 'decrement' });
+  };
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
+      <h2 style={{
+        margin: '0 0 16px 0',
+        fontSize: '24px',
+        fontWeight: '700',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
         Today's Progress
       </h2>
-      
+
+      {/* Daily Motivational Quote */}
+      <div style={{
+        background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+        color: THEME.white,
+        textAlign: 'center',
+      }}>
+        <div style={{
+          fontSize: '11px',
+          fontWeight: '600',
+          opacity: 0.9,
+          marginBottom: '6px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+        }}>
+          Daily Motivation
+        </div>
+        <div style={{
+          fontSize: '15px',
+          fontWeight: '500',
+          fontStyle: 'italic',
+          opacity: 0.95,
+          lineHeight: '1.5',
+          fontFamily: 'var(--font-body)',
+        }}>
+          "{dailyQuote}"
+        </div>
+        <div style={{
+          fontSize: '11px',
+          marginTop: '8px',
+          opacity: 0.75,
+          fontFamily: 'var(--font-body)',
+        }}>
+          Press R/D/C for quick add • {Object.keys(CATEGORIES).map(k => CATEGORIES[k].name[0]).join('/')}
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gap: '16px', marginBottom: '32px' }}>
         {CATEGORIES.map((category, index) => {
           const count = todayStats[category.id] || 0;
@@ -2446,13 +3193,13 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
           const Icon = category.icon;
           const isGoalReached = count >= goal;
           const isCelebrating = celebratingCategory === category.id;
-          
+
           // Determine gradient based on category
           let gradient = category.color;
           if (category.id === 'reviews') gradient = THEME.gradients.warning;
           else if (category.id === 'demos') gradient = THEME.gradients.success;
           else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
-          
+
           return (
             <div
               key={category.id}
@@ -2483,17 +3230,17 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   <Icon size={26} color={THEME.white} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ 
-                    fontSize: '16px', 
-                    fontWeight: '600', 
+                  <div style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
                     color: THEME.text,
                     fontFamily: 'var(--font-body)',
                   }}>
                     {category.name}
                   </div>
-                  <div style={{ 
-                    fontSize: '28px', 
-                    fontWeight: '700', 
+                  <div style={{
+                    fontSize: '28px',
+                    fontWeight: '700',
                     background: gradient,
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
@@ -2513,7 +3260,7 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   </div>
                 )}
               </div>
-              
+
               <div style={{
                 height: '14px',
                 background: THEME.secondary,
@@ -2531,10 +3278,10 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
                   boxShadow: progress >= 100 ? `0 0 12px ${category.color}40` : 'none',
                 }} />
               </div>
-              
+
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
-                  onClick={() => onDecrement(category.id)}
+                  onClick={() => handleDecrement(category.id)}
                   disabled={count === 0}
                   onMouseDown={(e) => {
                     e.currentTarget.style.transform = 'scale(0.95)';
@@ -2595,32 +3342,173 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
           );
         })}
       </div>
-      
-      <h3 style={{ 
-        margin: '0 0 16px 0', 
-        fontSize: '20px', 
-        fontWeight: '600', 
+
+      <div style={{ display: 'grid', gap: '20px', marginBottom: '32px' }}>
+        {/* Streak Counter */}
+        <div style={{
+          background: 'linear-gradient(135deg, #FF6B6B 0%, #FF8E72 100%)',
+          borderRadius: '16px',
+          padding: '24px',
+          boxShadow: THEME.shadows.md,
+          color: THEME.white,
+          textAlign: 'center',
+        }}>
+          <div style={{
+            fontSize: '14px',
+            fontWeight: '600',
+            opacity: 0.9,
+            marginBottom: '8px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+          }}>
+            Current Streak
+          </div>
+          <div style={{
+            fontSize: '48px',
+            fontWeight: '700',
+            marginBottom: '12px',
+            fontFamily: 'var(--font-mono)',
+          }}>
+            🔥 {calculateStreaks.currentStreak}
+          </div>
+          <div style={{
+            fontSize: '14px',
+            opacity: 0.85,
+          }}>
+            {calculateStreaks.currentStreak > 0
+              ? `${calculateStreaks.currentStreak} days meeting all goals!`
+              : 'Start your streak today!'}
+          </div>
+          {calculateStreaks.bestStreak > calculateStreaks.currentStreak && (
+            <div style={{
+              fontSize: '13px',
+              marginTop: '12px',
+              opacity: 0.75,
+              fontStyle: 'italic',
+            }}>
+              Best streak: {calculateStreaks.bestStreak} days
+            </div>
+          )}
+        </div>
+
+        {/* Undo Button & History */}
+        {undoHistory.length > 0 && (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '16px',
+            padding: '16px 20px',
+            boxShadow: THEME.shadows.md,
+            border: `2px solid ${THEME.primary}`,
+          }}>
+            <button
+              onClick={performUndo}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                background: THEME.primary,
+                border: 'none',
+                borderRadius: '10px',
+                color: THEME.white,
+                fontSize: '14px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: THEME.shadows.md,
+              }}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'scale(0.98)';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+            >
+              Undo: {undoHistory[0].type === 'increment' ? '-' : '+'}{undoHistory[0].categoryId === 'reviews' ? 'Review' : undoHistory[0].categoryId === 'demos' ? 'Demo' : 'Callback'} ({formatRelativeTime(undoHistory[0].timestamp)})
+            </button>
+          </div>
+        )}
+
+        {/* Pace Indicator */}
+        <div style={{
+          background: THEME.white,
+          borderRadius: '16px',
+          padding: '20px',
+          boxShadow: THEME.shadows.md,
+        }}>
+          <h3 style={{
+            margin: '0 0 16px 0',
+            fontSize: '16px',
+            fontWeight: '700',
+            color: THEME.text,
+            fontFamily: 'var(--font-display)',
+          }}>
+            Weekly Pace
+          </h3>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {paceIndicator.map((indicator, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  background:
+                    indicator.status === 'ahead' ? 'rgba(40, 167, 69, 0.08)' :
+                    indicator.status === 'behind' ? 'rgba(220, 53, 69, 0.08)' :
+                    'rgba(0, 86, 164, 0.08)',
+                  borderLeft: `4px solid ${
+                    indicator.status === 'ahead' ? THEME.success :
+                    indicator.status === 'behind' ? THEME.danger :
+                    THEME.primary
+                  }`,
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{
+                  fontSize: '20px',
+                }}>
+                  {indicator.status === 'ahead' ? '✨' : indicator.status === 'behind' ? '⚡' : '✓'}
+                </div>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: THEME.text,
+                  fontFamily: 'var(--font-body)',
+                }}>
+                  {indicator.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <h3 style={{
+        margin: '0 0 16px 0',
+        fontSize: '20px',
+        fontWeight: '600',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
         This Week
       </h3>
-      
+
       <div style={{
         background: THEME.white,
         borderRadius: '16px',
         padding: '20px',
         boxShadow: THEME.shadows.md,
+        marginBottom: '20px',
       }}>
         {CATEGORIES.map((category, index) => {
           const count = weekStats[category.id] || 0;
           const Icon = category.icon;
-          
+
           let gradient = category.color;
           if (category.id === 'reviews') gradient = THEME.gradients.warning;
           else if (category.id === 'demos') gradient = THEME.gradients.success;
           else if (category.id === 'callbacks') gradient = THEME.gradients.primary;
-          
+
           return (
             <div
               key={category.id}
@@ -2644,18 +3532,18 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
               }}>
                 <Icon size={20} color={THEME.white} />
               </div>
-              <div style={{ 
-                flex: 1, 
-                fontSize: '15px', 
+              <div style={{
+                flex: 1,
+                fontSize: '15px',
                 color: THEME.text,
                 fontFamily: 'var(--font-body)',
                 fontWeight: '500',
               }}>
                 {category.name}
               </div>
-              <div style={{ 
-                fontSize: '22px', 
-                fontWeight: '700', 
+              <div style={{
+                fontSize: '22px',
+                fontWeight: '700',
                 background: gradient,
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
@@ -2667,6 +3555,108 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
             </div>
           );
         })}
+
+        {/* Week Progress Mini-Chart */}
+        <div style={{
+          marginTop: '24px',
+          paddingTop: '20px',
+          borderTop: `1px solid ${THEME.border}`,
+        }}>
+          <div style={{
+            fontSize: '14px',
+            fontWeight: '600',
+            color: THEME.textLight,
+            marginBottom: '12px',
+            fontFamily: 'var(--font-body)',
+          }}>
+            Daily Trend
+          </div>
+          <div style={{
+            height: '80px',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            gap: '6px',
+          }}>
+            {last7Days.map((day, idx) => (
+              <div
+                key={idx}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    height: `${maxDay > 0 ? (day.total / maxDay) * 60 : 4}px`,
+                    background: 'linear-gradient(180deg, #4A90D9 0%, #0056A4 100%)',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'all 0.3s ease',
+                    cursor: 'pointer',
+                    minHeight: '4px',
+                  }}
+                  title={`${day.name}: ${day.total} items`}
+                />
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: THEME.textLight,
+                    fontWeight: '600',
+                    fontFamily: 'var(--font-body)',
+                  }}
+                >
+                  {day.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Goal Insights */}
+      <div style={{
+        background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+        borderRadius: '16px',
+        padding: '20px',
+        boxShadow: THEME.shadows.md,
+        color: THEME.white,
+      }}>
+        <h3 style={{
+          margin: '0 0 16px 0',
+          fontSize: '16px',
+          fontWeight: '700',
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span>💡</span> Insights
+        </h3>
+        <div style={{
+          display: 'grid',
+          gap: '10px',
+        }}>
+          {goalInsights.map((insight, idx) => (
+            <div
+              key={idx}
+              style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                opacity: 0.95,
+                lineHeight: '1.5',
+                fontFamily: 'var(--font-body)',
+                paddingLeft: '12px',
+                borderLeft: '3px solid rgba(255,255,255,0.3)',
+              }}
+            >
+              {insight}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -2676,7 +3666,8 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 // GOALS COMPONENT
 // ========================================
 
-function Goals({ currentUser, onUpdateGoals }) {
+function Goals({ currentUser, onUpdateGoals, theme }) {
+  const THEME = theme;
   const [goals, setGoals] = useState(currentUser.goals);
   const [showSaved, setShowSaved] = useState(false);
   
@@ -2820,13 +3811,17 @@ function Goals({ currentUser, onUpdateGoals }) {
 // APPOINTMENTS COMPONENT
 // ========================================
 
-function Appointments({ appointments, onAdd, onDelete }) {
+function Appointments({ appointments, onAdd, onDelete, theme }) {
+  const THEME = theme;
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     customerName: '',
     products: [],
     notes: '',
     date: getToday(),
+    time: '09:00',
+    duration: 60,
+    status: 'scheduled',
     countsAsDemo: true,
   });
   const [searchTerm, setSearchTerm] = useState('');
@@ -2838,6 +3833,9 @@ function Appointments({ appointments, onAdd, onDelete }) {
         products: [],
         notes: '',
         date: getToday(),
+        time: '09:00',
+        duration: 60,
+        status: 'scheduled',
         countsAsDemo: true,
       });
       setShowForm(false);
@@ -2947,7 +3945,77 @@ function Appointments({ appointments, onAdd, onDelete }) {
               }}
             />
           </div>
-          
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                Time
+              </label>
+              <select
+                value={formData.time}
+                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                {TIME_SLOTS.map(time => (
+                  <option key={time} value={time.split(' ')[0].padStart(5, '0')}>{time}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+                Duration
+              </label>
+              <select
+                value={formData.duration}
+                onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) })}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: `2px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                {DURATIONS.map(dur => (
+                  <option key={dur.value} value={dur.value}>{dur.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Status
+            </label>
+            <select
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `2px solid ${THEME.border}`,
+                borderRadius: '8px',
+                fontSize: '16px',
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+              }}
+            >
+              {APPOINTMENT_STATUS.map(status => (
+                <option key={status.id} value={status.id}>{status.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Product Interests
@@ -3151,22 +4219,44 @@ function Appointments({ appointments, onAdd, onDelete }) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                 <div>
-                  <div style={{ 
-                    fontSize: '18px', 
-                    fontWeight: '700', 
-                    color: THEME.text, 
+                  <div style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: THEME.text,
                     marginBottom: '6px',
                     fontFamily: 'var(--font-display)',
                   }}>
                     {appt.customerName}
                   </div>
-                  <div style={{ 
-                    fontSize: '14px', 
+                  <div style={{
+                    fontSize: '14px',
                     color: THEME.textLight,
                     fontFamily: 'var(--font-body)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
                   }}>
-                    {formatDate(appt.date)}
+                    <span>📅 {formatDate(appt.date)}</span>
+                    {appt.time && <span>🕐 {appt.time}</span>}
+                    {appt.duration && <span>⏱️ {appt.duration} min</span>}
                   </div>
+                  {appt.status && (
+                    <div style={{ marginTop: '6px' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        background: APPOINTMENT_STATUS.find(s => s.id === appt.status)?.color || THEME.primary,
+                        color: THEME.white,
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}>
+                        {APPOINTMENT_STATUS.find(s => s.id === appt.status)?.label || appt.status}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => onDelete(appt.id)}
@@ -3247,12 +4337,40 @@ function Appointments({ appointments, onAdd, onDelete }) {
 // FEED COMPONENT
 // ========================================
 
-function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEditPost, onDeletePost }) {
+function Feed({
+  feed,
+  currentUser,
+  onAddPost,
+  onToggleLike,
+  onAddComment,
+  onEditPost,
+  onDeletePost,
+  onAddReaction,
+  onTogglePinPost,
+  onUpdateFilters,
+  onMarkAsRead,
+  filteredFeed,
+  feedReactions,
+  feedFilters,
+  pinnedPosts,
+  unreadCount,
+  theme,
+  users
+}) {
+  const THEME = theme;
   const [newPost, setNewPost] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [commentingId, setCommentingId] = useState(null);
   const [newComment, setNewComment] = useState('');
+  // const [showReactionPicker, setShowReactionPicker] = useState(null); // TODO: For future use - reaction picker feature
+  const [viewMode, setViewMode] = useState('feed'); // 'feed' or 'achievements'
+
+  // const EMOJI_REACTIONS = ['👍', '❤️', '🔥', '💪', '🎉', '🎯']; // TODO: For future use - reaction system
+
+  // Backwards compatibility - if new props not provided, use defaults
+  // const displayFeed = filteredFeed || feed; // TODO: For future use - feed display modes
+  const reactions = feedReactions || {};
   
   const handlePost = () => {
     if (onAddPost(newPost)) {
@@ -3273,18 +4391,104 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
       setCommentingId(null);
     }
   };
-  
+
+  // const handleAddReaction = (postId, emoji) => { // TODO: For future use - reaction handler
+  //   if (onAddReaction) {
+  //     onAddReaction(postId, emoji);
+  //     setShowReactionPicker(null);
+  //   }
+  // };
+
+  // const getReactionCounts = (postId) => { // TODO: For future use - reaction counting
+  //   const reactionKey = `${postId}_reactions`;
+  //   const postReactions = reactions[reactionKey] || {};
+  //   const counts = {};
+  //
+  //   Object.values(postReactions).forEach(userReactions => {
+  //     userReactions.forEach(emoji => {
+  //       counts[emoji] = (counts[emoji] || 0) + 1;
+  //     });
+  //   });
+  //
+  //   return counts;
+  // };
+
+  // const getUserReactions = (postId) => { // TODO: For future use - user reaction retrieval
+  //   const reactionKey = `${postId}_reactions`;
+  //   const postReactions = reactions[reactionKey] || {};
+  //   return postReactions[currentUser?.id] || [];
+  // };
+
+  // const achievementPosts = feed.filter(p => p.type === 'achievement' || p.isAuto); // TODO: For future use - achievement filtering
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
-        color: THEME.text,
-        fontFamily: 'var(--font-display)',
-      }}>
-        Team Feed
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{
+          margin: 0,
+          fontSize: '24px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          Team Feed
+          {unreadCount > 0 && (
+            <span style={{
+              background: THEME.danger,
+              color: THEME.white,
+              borderRadius: '50%',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              fontWeight: '700',
+            }}>
+              {unreadCount}
+            </span>
+          )}
+        </h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => setViewMode(viewMode === 'feed' ? 'achievements' : 'feed')}
+            style={{
+              padding: '8px 16px',
+              background: viewMode === 'achievements' ? THEME.gradients.primary : THEME.secondary,
+              border: 'none',
+              borderRadius: '8px',
+              color: viewMode === 'achievements' ? THEME.white : THEME.text,
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {viewMode === 'achievements' ? '🏆 Achievements' : '📰 Feed'}
+          </button>
+          {unreadCount > 0 && (
+            <button
+              onClick={onMarkAsRead}
+              style={{
+                padding: '8px 16px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              Mark Read
+            </button>
+          )}
+        </div>
+      </div>
       
       <div style={{
         background: THEME.white,
@@ -3667,21 +4871,190 @@ function Feed({ feed, currentUser, onAddPost, onToggleLike, onAddComment, onEdit
 // LEADERBOARD COMPONENT
 // ========================================
 
-function Leaderboard({ leaderboard, currentUser }) {
+function Leaderboard({ users, dailyLogs, currentUser, theme }) {
+  const THEME = theme;
+  const [timeframe, setTimeframe] = useState('week');
+  const [category, setCategory] = useState('overall');
+
+  // Calculate leaderboard based on selected timeframe and category
+  const leaderboard = useMemo(() => {
+    // Determine date range
+    let startDate;
+    const today = getToday();
+
+    switch (timeframe) {
+      case 'today':
+        startDate = today;
+        break;
+      case 'week':
+        startDate = getWeekStart();
+        break;
+      case 'month':
+        startDate = getMonthStart();
+        break;
+      case 'alltime':
+        startDate = '2000-01-01'; // Far past date
+        break;
+      default:
+        startDate = getWeekStart();
+    }
+
+    // Calculate scores
+    const scores = users.map(user => {
+      let reviews = 0, demos = 0, callbacks = 0;
+
+      Object.entries(dailyLogs).forEach(([date, usersData]) => {
+        if (date >= startDate && usersData[user.id]) {
+          reviews += (usersData[user.id].reviews || 0);
+          demos += (usersData[user.id].demos || 0);
+          callbacks += (usersData[user.id].callbacks || 0);
+        }
+      });
+
+      let total;
+      if (category === 'reviews') total = reviews;
+      else if (category === 'demos') total = demos;
+      else if (category === 'callbacks') total = callbacks;
+      else total = reviews + demos + callbacks;
+
+      return { ...user, total, reviews, demos, callbacks };
+    });
+
+    return scores.sort((a, b) => b.total - a.total);
+  }, [users, dailyLogs, timeframe, category]);
+
   const medals = [THEME.gold, THEME.silver, THEME.bronze];
-  
+  const medalGradients = [
+    THEME.gradients.gold,
+    'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
+    'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
+  ];
+
+  const currentUserRank = leaderboard.findIndex(u => u.id === currentUser?.id) + 1;
+  const leaderTotal = leaderboard[0]?.total || 0;
+
   return (
     <div>
-      <h2 style={{ 
-        margin: '0 0 20px 0', 
-        fontSize: '24px', 
-        fontWeight: '700', 
+      <h2 style={{
+        margin: '0 0 20px 0',
+        fontSize: '24px',
+        fontWeight: '700',
         color: THEME.text,
         fontFamily: 'var(--font-display)',
       }}>
-        Weekly Leaderboard
+        Leaderboard
       </h2>
-      
+
+      {/* Timeframe Selector */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '6px',
+        marginBottom: '16px',
+        display: 'flex',
+        gap: '6px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        {[
+          { id: 'today', label: 'Today' },
+          { id: 'week', label: 'This Week' },
+          { id: 'month', label: 'This Month' },
+          { id: 'alltime', label: 'All Time' },
+        ].map(tf => (
+          <button
+            key={tf.id}
+            onClick={() => setTimeframe(tf.id)}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              background: timeframe === tf.id ? THEME.gradients.primary : 'transparent',
+              border: 'none',
+              borderRadius: '8px',
+              color: timeframe === tf.id ? THEME.white : THEME.text,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            {tf.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Category Tabs */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '12px',
+        padding: '6px',
+        marginBottom: '16px',
+        display: 'flex',
+        gap: '6px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        {[
+          { id: 'overall', label: 'Overall', icon: '🏆' },
+          { id: 'reviews', label: 'Reviews', icon: '⭐' },
+          { id: 'demos', label: 'Demos', icon: '📅' },
+          { id: 'callbacks', label: 'Callbacks', icon: '📞' },
+        ].map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => setCategory(cat.id)}
+            style={{
+              flex: 1,
+              padding: '10px 12px',
+              background: category === cat.id ? THEME.gradients.success : 'transparent',
+              border: 'none',
+              borderRadius: '8px',
+              color: category === cat.id ? THEME.white : THEME.text,
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            <div>{cat.icon}</div>
+            <div style={{ fontSize: '11px', marginTop: '2px' }}>{cat.label}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Current User Stats */}
+      {currentUser && currentUserRank > 0 && (
+        <div style={{
+          background: THEME.gradients.primary,
+          borderRadius: '12px',
+          padding: '16px',
+          marginBottom: '16px',
+          color: THEME.white,
+          boxShadow: THEME.shadows.md,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Your Rank</div>
+              <div style={{ fontSize: '24px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
+                #{currentUserRank}
+              </div>
+            </div>
+            {currentUserRank > 1 && leaderboard[0] && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '4px' }}>Behind Leader</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', fontFamily: 'var(--font-mono)' }}>
+                  {leaderTotal - (leaderboard.find(u => u.id === currentUser.id)?.total || 0)}
+                </div>
+              </div>
+            )}
+            {currentUserRank === 1 && (
+              <div style={{ fontSize: '28px' }}>👑</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard List */}
       <div style={{ display: 'grid', gap: '12px' }}>
         {leaderboard.length === 0 ? (
           <div style={{
@@ -3692,12 +5065,7 @@ function Leaderboard({ leaderboard, currentUser }) {
             color: THEME.textLight,
             boxShadow: THEME.shadows.md,
           }}>
-            <div style={{
-              fontSize: '48px',
-              marginBottom: '16px',
-            }}>
-              🏆
-            </div>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🏆</div>
             <div style={{
               fontSize: '18px',
               fontWeight: '600',
@@ -3705,39 +5073,30 @@ function Leaderboard({ leaderboard, currentUser }) {
               marginBottom: '8px',
               fontFamily: 'var(--font-display)',
             }}>
-              No activity this week yet
+              No activity yet
             </div>
-            <div style={{
-              fontSize: '14px',
-              color: THEME.textLight,
-            }}>
+            <div style={{ fontSize: '14px', color: THEME.textLight }}>
               Start tracking to see rankings!
             </div>
           </div>
         ) : (
           leaderboard.map((user, index) => {
             const isTopThree = index < 3;
-            const isCurrentUser = user.id === currentUser.id;
-            const medalGradients = [
-              THEME.gradients.gold,
-              'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)',
-              'linear-gradient(135deg, #CD7F32 0%, #E6A85C 100%)',
-            ];
-            
+            const isCurrentUser = user.id === currentUser?.id;
+            const prevRank = index; // Could track previous rankings for trend arrows
+
             return (
               <div
                 key={user.id}
                 style={{
-                  background: isCurrentUser 
-                    ? THEME.gradients.cardHover 
-                    : THEME.white,
+                  background: isCurrentUser ? THEME.gradients.cardHover : THEME.white,
                   borderRadius: '16px',
                   padding: '20px',
                   boxShadow: isTopThree ? THEME.shadows.layered : THEME.shadows.md,
-                  border: isCurrentUser 
-                    ? `2px solid ${THEME.primary}` 
-                    : isTopThree 
-                      ? `2px solid ${medals[index]}` 
+                  border: isCurrentUser
+                    ? `2px solid ${THEME.primary}`
+                    : isTopThree
+                      ? `2px solid ${medals[index]}`
                       : `1px solid ${THEME.border}`,
                   animation: `fadeInUp 0.4s ease-out ${index * 0.1}s both`,
                   transform: isTopThree ? 'scale(1.02)' : 'scale(1)',
@@ -3762,34 +5121,105 @@ function Leaderboard({ leaderboard, currentUser }) {
                     {isTopThree ? ['🥇', '🥈', '🥉'][index] : index + 1}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ 
-                      fontSize: '17px', 
-                      fontWeight: '700', 
+                    <div style={{
+                      fontSize: '17px',
+                      fontWeight: '700',
                       color: THEME.text,
                       fontFamily: 'var(--font-display)',
                       marginBottom: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
                     }}>
                       {user.name}
                       {isCurrentUser && ' (You)'}
                     </div>
-                    <div style={{ 
-                      fontSize: '13px', 
+                    <div style={{
+                      fontSize: '13px',
                       color: THEME.textLight,
                       fontFamily: 'var(--font-body)',
                     }}>
                       {user.role === 'manager' ? 'Manager' : 'Employee'}
                     </div>
+
+                    {/* Category Breakdown Mini Chart */}
+                    {category === 'overall' && (
+                      <div style={{ marginTop: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        {user.reviews > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.reviews / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.warning,
+                              borderRadius: '2px',
+                            }} />
+                            {user.reviews}
+                          </div>
+                        )}
+                        {user.demos > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.demos / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.success,
+                              borderRadius: '2px',
+                            }} />
+                            {user.demos}
+                          </div>
+                        )}
+                        {user.callbacks > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: THEME.textLight,
+                          }}>
+                            <div style={{
+                              width: Math.max(20, (user.callbacks / user.total) * 60) + 'px',
+                              height: '4px',
+                              background: THEME.gradients.primary,
+                              borderRadius: '2px',
+                            }} />
+                            {user.callbacks}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ 
-                    fontSize: '28px', 
-                    fontWeight: '700', 
-                    background: THEME.gradients.primary,
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    fontFamily: 'var(--font-mono)',
-                  }}>
-                    {user.weeklyTotal}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{
+                      fontSize: '28px',
+                      fontWeight: '700',
+                      background: THEME.gradients.primary,
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {user.total}
+                    </div>
+                    {index > 0 && leaderboard[index - 1] && (
+                      <div style={{
+                        fontSize: '11px',
+                        color: THEME.textLight,
+                        marginTop: '2px',
+                      }}>
+                        -{leaderboard[index - 1].total - user.total} behind
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3802,10 +5232,868 @@ function Leaderboard({ leaderboard, currentUser }) {
 }
 
 // ========================================
+// HISTORY VIEW COMPONENT
+// ========================================
+
+function HistoryView({ currentUser, users, dailyLogs, theme }) {
+  const THEME = theme;
+  const [timeRange, setTimeRange] = useState('week');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState(currentUser?.id || '');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  const isManager = currentUser?.role === 'manager';
+
+  // Calculate date range based on selected time range
+  const getDateRange = useCallback(() => {
+    let startDate, endDate;
+
+    switch (timeRange) {
+      case 'today':
+        startDate = endDate = getToday();
+        break;
+      case 'week':
+        startDate = getWeekStart();
+        endDate = getToday();
+        break;
+      case 'month':
+        startDate = getMonthStart();
+        endDate = getToday();
+        break;
+      case 'custom':
+        startDate = customStartDate || getToday();
+        endDate = customEndDate || getToday();
+        break;
+      default:
+        startDate = getWeekStart();
+        endDate = getToday();
+    }
+
+    return { startDate, endDate };
+  }, [timeRange, customStartDate, customEndDate]);
+
+  // Get data for selected user and date range
+  const historyData = useMemo(() => {
+    const { startDate, endDate } = getDateRange();
+    const userId = isManager && selectedUserId === 'all' ? null : (selectedUserId || currentUser?.id);
+
+    const dateArray = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
+      dateArray.push(dateStr);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return dateArray.map(date => {
+      let reviews = 0, demos = 0, callbacks = 0;
+
+      if (dailyLogs[date]) {
+        if (userId) {
+          // Single user
+          const userLog = dailyLogs[date][userId];
+          if (userLog) {
+            reviews = userLog.reviews || 0;
+            demos = userLog.demos || 0;
+            callbacks = userLog.callbacks || 0;
+          }
+        } else {
+          // All team (managers only)
+          Object.values(dailyLogs[date]).forEach(userLog => {
+            reviews += userLog.reviews || 0;
+            demos += userLog.demos || 0;
+            callbacks += userLog.callbacks || 0;
+          });
+        }
+      }
+
+      // Get goals (user's goals or sum of all users' goals)
+      let reviewsGoal = 0, demosGoal = 0, callbacksGoal = 0;
+      if (userId) {
+        const user = users.find(u => u.id === userId);
+        if (user?.goals) {
+          reviewsGoal = user.goals.reviews || 5;
+          demosGoal = user.goals.demos || 3;
+          callbacksGoal = user.goals.callbacks || 10;
+        }
+      } else {
+        users.forEach(user => {
+          if (user.goals) {
+            reviewsGoal += user.goals.reviews || 5;
+            demosGoal += user.goals.demos || 3;
+            callbacksGoal += user.goals.callbacks || 10;
+          }
+        });
+      }
+
+      return {
+        date,
+        reviews,
+        demos,
+        callbacks,
+        total: reviews + demos + callbacks,
+        goalsReviews: reviewsGoal,
+        goalsDemos: demosGoal,
+        goalsCallbacks: callbacksGoal,
+        goalsTotal: reviewsGoal + demosGoal + callbacksGoal,
+        goalsMet: reviews >= reviewsGoal && demos >= demosGoal && callbacks >= callbacksGoal,
+      };
+    }).reverse(); // Most recent first for the list
+  }, [dailyLogs, users, currentUser, selectedUserId, isManager, getDateRange]);
+
+  // Chart data (chronological order for chart)
+  const chartData = useMemo(() => {
+    return [...historyData].reverse().map(day => ({
+      date: formatDate(day.date),
+      Reviews: day.reviews,
+      Demos: day.demos,
+      Callbacks: day.callbacks,
+    }));
+  }, [historyData]);
+
+  // Period summary statistics
+  const periodStats = useMemo(() => {
+    const totalReviews = historyData.reduce((sum, day) => sum + day.reviews, 0);
+    const totalDemos = historyData.reduce((sum, day) => sum + day.demos, 0);
+    const totalCallbacks = historyData.reduce((sum, day) => sum + day.callbacks, 0);
+    const totalActivities = totalReviews + totalDemos + totalCallbacks;
+    const goalsMetCount = historyData.filter(day => day.goalsMet).length;
+    const totalDays = historyData.length;
+
+    let bestDay = null;
+    let bestDayTotal = 0;
+    historyData.forEach(day => {
+      if (day.total > bestDayTotal) {
+        bestDayTotal = day.total;
+        bestDay = day.date;
+      }
+    });
+
+    const avgPerDay = totalDays > 0 ? (totalActivities / totalDays).toFixed(1) : 0;
+
+    return {
+      totalReviews,
+      totalDemos,
+      totalCallbacks,
+      totalActivities,
+      goalsMetCount,
+      totalDays,
+      bestDay,
+      bestDayTotal,
+      avgPerDay,
+    };
+  }, [historyData]);
+
+  // Navigate to previous/next period
+  const navigatePeriod = (direction) => {
+    const { startDate, endDate } = getDateRange();
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+
+    if (direction === 'prev') {
+      start.setDate(start.getDate() - diff);
+      end.setDate(end.getDate() - diff);
+    } else {
+      start.setDate(start.getDate() + diff);
+      end.setDate(end.getDate() + diff);
+    }
+
+    setCustomStartDate(start.toISOString().split('T')[0]);
+    setCustomEndDate(end.toISOString().split('T')[0]);
+    setTimeRange('custom');
+  };
+
+  return (
+    <div>
+      <h2 style={{
+        margin: '0 0 20px 0',
+        fontSize: '24px',
+        fontWeight: '700',
+        color: THEME.text,
+        fontFamily: 'var(--font-display)',
+      }}>
+        Activity History
+      </h2>
+
+      {/* Time Range Selector */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+          }}>
+            {['today', 'week', 'month', 'custom'].map(range => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                style={{
+                  flex: range === 'custom' ? '0 0 auto' : 1,
+                  padding: '12px 16px',
+                  background: timeRange === range ? THEME.gradients.primary : THEME.secondary,
+                  border: 'none',
+                  borderRadius: '10px',
+                  color: timeRange === range ? THEME.white : THEME.text,
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: timeRange === range ? THEME.shadows.md : 'none',
+                }}
+              >
+                {range === 'today' && 'Today'}
+                {range === 'week' && 'This Week'}
+                {range === 'month' && 'This Month'}
+                {range === 'custom' && 'Custom'}
+              </button>
+            ))}
+          </div>
+
+          {timeRange === 'custom' && (
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: '120px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  color: THEME.textLight,
+                  marginBottom: '4px',
+                  fontWeight: '600',
+                }}>
+                  From
+                </label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  max={getToday()}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: '120px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  color: THEME.textLight,
+                  marginBottom: '4px',
+                  fontWeight: '600',
+                }}>
+                  To
+                </label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  max={getToday()}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Previous/Next Navigation */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginTop: '12px',
+          }}>
+            <button
+              onClick={() => navigatePeriod('prev')}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: THEME.text,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() => navigatePeriod('next')}
+              disabled={getDateRange().endDate >= getToday()}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: getDateRange().endDate >= getToday() ? THEME.border : THEME.secondary,
+                border: 'none',
+                borderRadius: '8px',
+                color: getDateRange().endDate >= getToday() ? THEME.textLight : THEME.text,
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: getDateRange().endDate >= getToday() ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+
+        {/* User Filter (Manager only) */}
+        {isManager && (
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '12px',
+              color: THEME.textLight,
+              marginBottom: '8px',
+              fontWeight: '600',
+            }}>
+              View Data For
+            </label>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: `1px solid ${THEME.border}`,
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: '600',
+                background: THEME.white,
+                cursor: 'pointer',
+              }}
+            >
+              <option value="all">All Team</option>
+              {users.filter(u => u.role !== 'manager').map(user => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Category Filter */}
+        <div>
+          <label style={{
+            display: 'block',
+            fontSize: '12px',
+            color: THEME.textLight,
+            marginBottom: '8px',
+            fontWeight: '600',
+          }}>
+            Filter by Category
+          </label>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            flexWrap: 'wrap',
+          }}>
+            {['all', 'reviews', 'demos', 'callbacks'].map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                style={{
+                  flex: 1,
+                  minWidth: '70px',
+                  padding: '10px 12px',
+                  background: selectedCategory === cat ? THEME.gradients.primary : THEME.secondary,
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: selectedCategory === cat ? THEME.white : THEME.text,
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: selectedCategory === cat ? THEME.shadows.sm : 'none',
+                }}
+              >
+                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Period Summary Card */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <h3 style={{
+          margin: '0 0 20px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Period Summary
+        </h3>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: '16px',
+        }}>
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.primary,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.totalActivities}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Total Activities
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.success,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.goalsMetCount}/{periodStats.totalDays}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Goals Met
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.warning,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.avgPerDay}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Avg per Day
+            </div>
+          </div>
+
+          <div style={{
+            background: THEME.gradients.background,
+            borderRadius: '12px',
+            padding: '16px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '28px',
+              fontWeight: '700',
+              background: THEME.gradients.gold,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontFamily: 'var(--font-mono)',
+              marginBottom: '4px',
+            }}>
+              {periodStats.bestDayTotal}
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight, fontWeight: '600' }}>
+              Best Day
+            </div>
+            {periodStats.bestDay && (
+              <div style={{ fontSize: '10px', color: THEME.textLight, marginTop: '2px' }}>
+                {formatDate(periodStats.bestDay)}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Trend Chart */}
+      <div style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '20px',
+        boxShadow: THEME.shadows.md,
+      }}>
+        <h3 style={{
+          margin: '0 0 20px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Trend Over Time
+        </h3>
+
+        {chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={THEME.border} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: THEME.textLight }}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis tick={{ fontSize: 12, fill: THEME.textLight }} />
+              <Tooltip
+                contentStyle={{
+                  background: THEME.white,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: '8px',
+                  boxShadow: THEME.shadows.md,
+                }}
+              />
+              <Legend
+                wrapperStyle={{ paddingTop: '20px' }}
+                iconType="line"
+              />
+              {(selectedCategory === 'all' || selectedCategory === 'reviews') && (
+                <Line
+                  type="monotone"
+                  dataKey="Reviews"
+                  stroke={THEME.warning}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.warning, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+              {(selectedCategory === 'all' || selectedCategory === 'demos') && (
+                <Line
+                  type="monotone"
+                  dataKey="Demos"
+                  stroke={THEME.success}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.success, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+              {(selectedCategory === 'all' || selectedCategory === 'callbacks') && (
+                <Line
+                  type="monotone"
+                  dataKey="Callbacks"
+                  stroke={THEME.primary}
+                  strokeWidth={2}
+                  dot={{ fill: THEME.primary, r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{
+            textAlign: 'center',
+            padding: '60px 20px',
+            color: THEME.textLight,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              No data available
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Day-by-Day List */}
+      <div>
+        <h3 style={{
+          margin: '0 0 16px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          Day-by-Day Breakdown
+        </h3>
+
+        {historyData.length > 0 ? (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {historyData.map((day, index) => {
+              const dayOfWeek = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' });
+              const hasActivity = day.total > 0;
+
+              return (
+                <div
+                  key={day.date}
+                  style={{
+                    background: THEME.white,
+                    borderRadius: '16px',
+                    padding: '20px',
+                    boxShadow: THEME.shadows.md,
+                    border: day.goalsMet ? `2px solid ${THEME.success}` : 'none',
+                    animation: `fadeInUp 0.3s ease-out ${index * 0.05}s both`,
+                    opacity: hasActivity ? 1 : 0.6,
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                  }}>
+                    <div>
+                      <div style={{
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        color: THEME.text,
+                        fontFamily: 'var(--font-display)',
+                      }}>
+                        {formatDate(day.date)}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: THEME.textLight,
+                        fontWeight: '600',
+                      }}>
+                        {dayOfWeek}
+                      </div>
+                    </div>
+
+                    {day.goalsMet && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 12px',
+                        background: THEME.gradients.success,
+                        borderRadius: '8px',
+                        color: THEME.white,
+                        fontSize: '12px',
+                        fontWeight: '700',
+                      }}>
+                        <span>★</span>
+                        Goals Met
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Category Breakdown */}
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {(selectedCategory === 'all' || selectedCategory === 'reviews') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Reviews
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.reviews >= day.goalsReviews ? THEME.success : THEME.danger,
+                          }}>
+                            {day.reviews} / {day.goalsReviews}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.reviews / day.goalsReviews) * 100, 100)}%`,
+                            background: day.reviews >= day.goalsReviews ? THEME.gradients.success : THEME.gradients.warning,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {(selectedCategory === 'all' || selectedCategory === 'demos') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Demos
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.demos >= day.goalsDemos ? THEME.success : THEME.danger,
+                          }}>
+                            {day.demos} / {day.goalsDemos}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.demos / day.goalsDemos) * 100, 100)}%`,
+                            background: day.demos >= day.goalsDemos ? THEME.gradients.success : THEME.gradients.success,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {(selectedCategory === 'all' || selectedCategory === 'callbacks') && (
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: THEME.text,
+                          }}>
+                            Callbacks
+                          </span>
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: day.callbacks >= day.goalsCallbacks ? THEME.success : THEME.danger,
+                          }}>
+                            {day.callbacks} / {day.goalsCallbacks}
+                          </span>
+                        </div>
+                        <div style={{
+                          height: '8px',
+                          background: THEME.secondary,
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min((day.callbacks / day.goalsCallbacks) * 100, 100)}%`,
+                            background: day.callbacks >= day.goalsCallbacks ? THEME.gradients.success : THEME.gradients.primary,
+                            transition: 'width 0.3s ease',
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasActivity && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '12px',
+                      background: THEME.secondary,
+                      borderRadius: '8px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      color: THEME.textLight,
+                      fontStyle: 'italic',
+                    }}>
+                      No activity recorded
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '16px',
+            padding: '60px 20px',
+            textAlign: 'center',
+            color: THEME.textLight,
+            boxShadow: THEME.shadows.md,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📅</div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No activity in this period
+            </div>
+            <div style={{ fontSize: '14px', color: THEME.textLight }}>
+              Try selecting a different time range
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========================================
 // ACTIVE USERS LIST COMPONENT
 // ========================================
 
-function ActiveUsersList({ activeUsers, currentUser }) {
+function ActiveUsersList({ activeUsers, currentUser, theme }) {
+  const THEME = theme;
   return (
     <div style={{
       background: THEME.white,
@@ -3981,7 +6269,8 @@ const formatInlineMarkdown = (text) => {
   return parts.length > 0 ? parts : text;
 };
 
-function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings }) {
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings, theme }) {
+  const THEME = theme;
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -5300,9 +7589,10 @@ Keep responses conversational and concise for voice interaction.`,
 // TEAM VIEW COMPONENT (Manager Only)
 // ========================================
 
-function TeamView({ users, dailyLogs }) {
+function TeamView({ users, dailyLogs, theme }) {
+  const THEME = theme;
   const today = getToday();
-  
+
   return (
     <div>
       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700', color: THEME.text }}>
@@ -5424,7 +7714,8 @@ function TeamView({ users, dailyLogs }) {
 // ADMIN PANEL COMPONENT (Manager Only)
 // ========================================
 
-function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport }) {
+function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport, theme }) {
+  const THEME = theme;
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('employee');
@@ -5761,9 +8052,10 @@ function AdminPanel({ users, onCreateUser, onDeleteUser, onUpdateGoals, onExport
 // REPORTS COMPONENT (Manager Only)
 // ========================================
 
-function Reports({ users, dailyLogs, appointments }) {
+function Reports({ users, dailyLogs, appointments, theme }) {
+  const THEME = theme;
   const [timeRange, setTimeRange] = useState('week');
-  
+
   const chartData = useMemo(() => {
     const data = users.filter(u => u.role === 'employee').map(user => {
       let total = 0;
@@ -5805,6 +8097,7 @@ function Reports({ users, dailyLogs, appointments }) {
       { name: 'Demos', value: data.demos, color: THEME.success },
       { name: 'Callbacks', value: data.callbacks, color: THEME.primary },
     ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dailyLogs, timeRange]);
   
   return (
@@ -5979,8 +8272,9 @@ function Reports({ users, dailyLogs, appointments }) {
 // SETTINGS COMPONENT
 // ========================================
 
-function SettingsPage({ settings, onSaveSettings }) {
-  const [localSettings, setLocalSettings] = useState(settings);
+function SettingsPage({ settings, onSaveSettings, currentThemeMode, theme, currentUser, users, setUsers, dailyLogs, appointments, feed, setDailyLogs, setAppointments, setFeed, setCurrentUser, showToast, isSupabaseConfigured, isOnline }) {
+  const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', success: '#28A745', warning: '#FFC107', danger: '#DC3545', shadows: { md: '0 2px 8px rgba(0, 0, 0, 0.08)' }, gradients: { primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' } };
+  const [localSettings, setLocalSettings] = useState({ ...settings, themeMode: currentThemeMode });
   const [showApiKey, setShowApiKey] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
@@ -5988,11 +8282,29 @@ function SettingsPage({ settings, onSaveSettings }) {
   const [liveModels, setLiveModels] = useState(LIVE_MODELS_FALLBACK);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState(null);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
 
   // Update local settings when props change
   useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
+    setLocalSettings(prev => ({ ...prev, ...settings, themeMode: currentThemeMode }));
+  }, [settings, currentThemeMode]);
+
+  // Initialize integration manager and load status
+  useEffect(() => {
+    if (currentUser?.id) {
+      const { IntegrationManager } = require('./lib/integrations');
+      const manager = new IntegrationManager(currentUser.id);
+      setIntegrationManager(manager);
+      
+      // Load integration statuses
+      manager.getJotformStatus().then(setJotformStatus).catch(console.error);
+      manager.getMarketsharpStatus().then(setMarketsharpStatus).catch(console.error);
+      
+      // Load synced data
+      manager.getJotformSubmissions().then(setJotformSubmissions).catch(console.error);
+      manager.getMarketsharpData().then(setMarketsharpData).catch(console.error);
+    }
+  }, [currentUser?.id]);
 
   // Fetch available models when API key is available
   useEffect(() => {
@@ -6085,6 +8397,226 @@ function SettingsPage({ settings, onSaveSettings }) {
     }));
   };
 
+  const handlePrivacyChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      privacy: { ...prev.privacy, [key]: value }
+    }));
+  };
+
+  const handleAccessibilityChange = (key, value) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      accessibility: { ...prev.accessibility, [key]: value }
+    }));
+  };
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
+  // Integration state
+  const [jotformStatus, setJotformStatus] = useState({ connected: false });
+  const [marketsharpStatus, setMarketsharpStatus] = useState({ connected: false });
+  const [jotformApiKey, setJotformApiKey] = useState('');
+  const [showJotformKey, setShowJotformKey] = useState(false);
+  const [marketsharpApiKey, setMarketsharpApiKey] = useState('');
+  const [marketsharpCompanyId, setMarketsharpCompanyId] = useState('');
+  const [showMarketsharpKey, setShowMarketsharpKey] = useState(false);
+  const [isConnectingJotform, setIsConnectingJotform] = useState(false);
+  const [isConnectingMarketsharp, setIsConnectingMarketsharp] = useState(false);
+  const [jotformSubmissions, setJotformSubmissions] = useState([]);
+  const [marketsharpData, setMarketsharpData] = useState({ leads: [], contacts: [] });
+  const [integrationManager, setIntegrationManager] = useState(null);
+
+  const exportUserData = () => {
+    try {
+      const userData = {
+        user: currentUser,
+        dailyLogs: dailyLogs.filter(log => log.userId === currentUser.id),
+        appointments: appointments.filter(apt => apt.userId === currentUser.id),
+        feed: feed.filter(post => post.userId === currentUser.id),
+        settings: localSettings,
+        exportDate: new Date().toISOString(),
+      };
+      const dataStr = JSON.stringify(userData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `window-depot-data-${currentUser.id}-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('Data exported successfully', 'success');
+    } catch (error) {
+      console.error('Export failed:', error);
+      showToast('Failed to export data', 'error');
+    }
+  };
+
+  const deleteUserAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      showToast('Please type DELETE to confirm', 'error');
+      return;
+    }
+
+    try {
+      // Remove user from users array
+      const updatedUsers = users.filter(u => u.id !== currentUser.id);
+      setUsers(updatedUsers);
+      await storage.set('users', updatedUsers);
+
+      // Clear user-specific data from IndexedDB
+      const userLogs = dailyLogs.filter(log => log.userId === currentUser.id);
+      const userAppts = appointments.filter(apt => apt.userId === currentUser.id);
+      const userFeed = feed.filter(post => post.userId === currentUser.id);
+
+      // Remove from state
+      setDailyLogs(prev => prev.filter(log => log.userId !== currentUser.id));
+      setAppointments(prev => prev.filter(apt => apt.userId !== currentUser.id));
+      setFeed(prev => prev.filter(post => post.userId !== currentUser.id));
+
+      // Sync to Supabase if configured
+      if (isSupabaseConfigured && isOnline) {
+        try {
+          const { syncToSupabase } = await import('./lib/sync');
+          await syncToSupabase();
+        } catch (syncError) {
+          console.error('Supabase sync failed during deletion:', syncError);
+        }
+      }
+
+      // Clear current user session
+      setCurrentUser(null);
+      await storage.remove('currentUser');
+      await storage.remove('rememberUser');
+
+      showToast('Account deleted successfully', 'success');
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText('');
+    } catch (error) {
+      console.error('Account deletion failed:', error);
+      showToast('Failed to delete account', 'error');
+    }
+  };
+
+  // Integration handlers
+  const handleConnectJotform = async () => {
+    if (!jotformApiKey.trim()) {
+      showToast('Please enter your Jotform API key', 'error');
+      return;
+    }
+
+    if (!integrationManager) {
+      showToast('Integration manager not initialized', 'error');
+      return;
+    }
+
+    setIsConnectingJotform(true);
+    try {
+      await integrationManager.connectJotform(jotformApiKey.trim());
+      const status = await integrationManager.getJotformStatus();
+      setJotformStatus(status);
+      setJotformApiKey('');
+      showToast('Jotform connected successfully', 'success');
+      
+      // Start sync
+      integrationManager.startJotformSync((result) => {
+        if (result.success) {
+          integrationManager.getJotformSubmissions().then(setJotformSubmissions);
+        }
+      });
+    } catch (error) {
+      showToast(`Failed to connect: ${error.message}`, 'error');
+    } finally {
+      setIsConnectingJotform(false);
+    }
+  };
+
+  const handleDisconnectJotform = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectJotform();
+      setJotformStatus({ connected: false });
+      setJotformSubmissions([]);
+      showToast('Jotform disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncJotform = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const result = await integrationManager.syncJotformSubmissions();
+      setJotformSubmissions(await integrationManager.getJotformSubmissions());
+      showToast(`Synced ${result.count} submissions`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
+  };
+
+  const handleConnectMarketsharp = async () => {
+    if (!marketsharpApiKey.trim() || !marketsharpCompanyId.trim()) {
+      showToast('Please enter both API key and Company ID', 'error');
+      return;
+    }
+
+    if (!integrationManager) {
+      showToast('Integration manager not initialized', 'error');
+      return;
+    }
+
+    setIsConnectingMarketsharp(true);
+    try {
+      await integrationManager.connectMarketsharp(marketsharpApiKey.trim(), marketsharpCompanyId.trim());
+      const status = await integrationManager.getMarketsharpStatus();
+      setMarketsharpStatus(status);
+      setMarketsharpApiKey('');
+      setMarketsharpCompanyId('');
+      showToast('Marketsharp connected successfully', 'success');
+      
+      // Start sync
+      integrationManager.startMarketsharpSync((result) => {
+        if (result.success) {
+          integrationManager.getMarketsharpData().then(setMarketsharpData);
+        }
+      });
+    } catch (error) {
+      showToast(`Failed to connect: ${error.message}`, 'error');
+    } finally {
+      setIsConnectingMarketsharp(false);
+    }
+  };
+
+  const handleDisconnectMarketsharp = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      await integrationManager.disconnectMarketsharp();
+      setMarketsharpStatus({ connected: false });
+      setMarketsharpData({ leads: [], contacts: [] });
+      showToast('Marketsharp disconnected', 'success');
+    } catch (error) {
+      showToast('Failed to disconnect', 'error');
+    }
+  };
+
+  const handleSyncMarketsharp = async () => {
+    if (!integrationManager) return;
+    
+    try {
+      const result = await integrationManager.syncMarketsharpData();
+      setMarketsharpData(await integrationManager.getMarketsharpData());
+      showToast(`Synced ${result.leadsCount} leads and ${result.contactsCount} contacts`, 'success');
+    } catch (error) {
+      showToast(`Sync failed: ${error.message}`, 'error');
+    }
+  };
+
   const handleValidateApiKey = async () => {
     const apiKey = localSettings.ai.apiKey;
     if (!apiKey || apiKey.trim().length < 10) {
@@ -6165,7 +8697,64 @@ function SettingsPage({ settings, onSaveSettings }) {
         Settings
       </h2>
 
+      {/* Settings Tabs Navigation */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginBottom: '24px',
+        overflowX: 'auto',
+        paddingBottom: '8px',
+        WebkitOverflowScrolling: 'touch',
+      }}>
+        {[
+          { id: 'ai', label: 'AI Coach', icon: Bot },
+          { id: 'notifications', label: 'Notifications', icon: Bell },
+          { id: 'privacy', label: 'Privacy', icon: Shield },
+          { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+          { id: 'appearance', label: 'Appearance', icon: Palette },
+          { id: 'integrations', label: 'Integrations', icon: Package },
+        ].map(tab => {
+          const TabIcon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSettingsTab(tab.id)}
+              style={{
+                padding: '10px 16px',
+                background: activeSettingsTab === tab.id ? THEME.primary : THEME.secondary,
+                color: activeSettingsTab === tab.id ? THEME.white : THEME.text,
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: activeSettingsTab === tab.id ? '600' : '500',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s ease',
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => {
+                if (activeSettingsTab !== tab.id) {
+                  e.currentTarget.style.background = 'rgba(0,123,255,0.08)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activeSettingsTab !== tab.id) {
+                  e.currentTarget.style.background = THEME.secondary;
+                }
+              }}
+            >
+              <TabIcon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* AI Settings Section */}
+      {activeSettingsTab === 'ai' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
@@ -6659,8 +9248,10 @@ function SettingsPage({ settings, onSaveSettings }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Appearance Settings */}
+      {activeSettingsTab === 'appearance' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
@@ -6672,7 +9263,7 @@ function SettingsPage({ settings, onSaveSettings }) {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <Sliders size={20} color={THEME.primary} />
+            <Palette size={20} color={THEME.primary} />
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
@@ -6701,7 +9292,7 @@ function SettingsPage({ settings, onSaveSettings }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Show Animations
@@ -6717,9 +9308,87 @@ function SettingsPage({ settings, onSaveSettings }) {
             <div style={toggleKnobStyle(localSettings.appearance.showAnimations)} />
           </button>
         </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sun size={14} />
+              Theme
+            </div>
+          </label>
+          <select
+            value={localSettings.themeMode || 'light'}
+            onChange={(e) => {
+              setLocalSettings(prev => ({
+                ...prev,
+                themeMode: e.target.value
+              }));
+            }}
+            style={selectStyle}
+          >
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="high-contrast">High Contrast</option>
+            <option value="blue">Blue</option>
+            <option value="green">Green</option>
+          </select>
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+            Choose your preferred theme color scheme.
+          </p>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            Font Size
+          </label>
+          <select
+            value={localSettings.appearance.fontSize || 'medium'}
+            onChange={(e) => handleAppearanceChange('fontSize', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+            <option value="extra-large">Extra Large</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>
+            Density
+          </label>
+          <select
+            value={localSettings.appearance.density || 'comfortable'}
+            onChange={(e) => handleAppearanceChange('density', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="compact">Compact</option>
+            <option value="comfortable">Comfortable</option>
+            <option value="spacious">Spacious</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Reduce Motion
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Disable animations for accessibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.appearance.reduceMotion)}
+            onClick={() => handleAppearanceChange('reduceMotion', !localSettings.appearance.reduceMotion)}
+          >
+            <div style={toggleKnobStyle(localSettings.appearance.reduceMotion)} />
+          </button>
+        </div>
       </div>
+      )}
 
       {/* Notification Settings */}
+      {activeSettingsTab === 'notifications' && (
       <div style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
           <div style={{
@@ -6731,14 +9400,14 @@ function SettingsPage({ settings, onSaveSettings }) {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <MessageSquare size={20} color={THEME.primary} />
+            <Bell size={20} color={THEME.primary} />
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
               Notifications
             </h3>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
-              Manage your alerts
+              Manage your alerts and reminders
             </p>
           </div>
         </div>
@@ -6760,7 +9429,48 @@ function SettingsPage({ settings, onSaveSettings }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {localSettings.notifications.goalReminders && (
+          <div style={{ marginBottom: '16px', marginLeft: '0', paddingLeft: '0' }}>
+            <label style={labelStyle}>Goal Reminder Time</label>
+            <input
+              type="time"
+              value={localSettings.notifications.goalReminderTime || '09:00'}
+              onChange={(e) => handleNotificationChange('goalReminderTime', e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              End of Day Reminder
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Daily summary reminder
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.endOfDayReminder)}
+            onClick={() => handleNotificationChange('endOfDayReminder', !localSettings.notifications.endOfDayReminder)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.endOfDayReminder)} />
+          </button>
+        </div>
+
+        {localSettings.notifications.endOfDayReminder && (
+          <div style={{ marginBottom: '16px', marginLeft: '0', paddingLeft: '0' }}>
+            <label style={labelStyle}>End of Day Reminder Time</label>
+            <input
+              type="time"
+              value={localSettings.notifications.endOfDayReminderTime || '18:00'}
+              onChange={(e) => handleNotificationChange('endOfDayReminderTime', e.target.value)}
+              style={inputStyle}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
               Achievement Alerts
@@ -6776,7 +9486,721 @@ function SettingsPage({ settings, onSaveSettings }) {
             <div style={toggleKnobStyle(localSettings.notifications.achievementAlerts)} />
           </button>
         </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Team Activity Alerts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify about team member activity
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.teamActivityAlerts)}
+            onClick={() => handleNotificationChange('teamActivityAlerts', !localSettings.notifications.teamActivityAlerts)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.teamActivityAlerts)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Like Notifications
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when someone likes your posts
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.likeNotifications)}
+            onClick={() => handleNotificationChange('likeNotifications', !localSettings.notifications.likeNotifications)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.likeNotifications)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Appointment Shared Notifications
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when appointments are shared
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.appointmentSharedNotifications)}
+            onClick={() => handleNotificationChange('appointmentSharedNotifications', !localSettings.notifications.appointmentSharedNotifications)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.appointmentSharedNotifications)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Leaderboard Change Alerts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Notify when leaderboard position changes
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.notifications.leaderboardChangeAlerts)}
+            onClick={() => handleNotificationChange('leaderboardChangeAlerts', !localSettings.notifications.leaderboardChangeAlerts)}
+          >
+            <div style={toggleKnobStyle(localSettings.notifications.leaderboardChangeAlerts)} />
+          </button>
+        </div>
       </div>
+      )}
+
+      {/* Privacy Settings */}
+      {activeSettingsTab === 'privacy' && (
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Shield size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Privacy & Data Management
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Control your data and privacy preferences
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Opt Out of Leaderboard
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Hide your ranking from others
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.optOutOfLeaderboard)}
+            onClick={() => handlePrivacyChange('optOutOfLeaderboard', !localSettings.privacy?.optOutOfLeaderboard)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.optOutOfLeaderboard)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Private Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Don't share achievements to team feed
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.privateMode)}
+            onClick={() => handlePrivacyChange('privateMode', !localSettings.privacy?.privateMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.privateMode)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Anonymous Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Show as "Anonymous User" in team views
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.privacy?.anonymousMode)}
+            onClick={() => handlePrivacyChange('anonymousMode', !localSettings.privacy?.anonymousMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.privacy?.anonymousMode)} />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: '20px', paddingTop: '20px', borderTop: `1px solid ${THEME.border}` }}>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>Export Your Data</div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>Download all your personal data as JSON</div>
+          </div>
+          <button
+            onClick={exportUserData}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: THEME.primary,
+              color: THEME.white,
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <FileDown size={16} />
+            Export My Data
+          </button>
+        </div>
+
+        <div style={{ paddingTop: '20px', borderTop: `1px solid ${THEME.border}` }}>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.danger }}>Delete Account</div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>Permanently delete your account and all data</div>
+          </div>
+          <button
+            onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: 'transparent',
+              color: THEME.danger,
+              border: `2px solid ${THEME.danger}`,
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <Trash2 size={16} />
+            Delete My Account
+          </button>
+
+          {showDeleteConfirm && (
+            <div style={{ marginTop: '16px', padding: '16px', background: '#FFE5E5', borderRadius: '8px' }}>
+              <div style={{ marginBottom: '12px', color: THEME.danger, fontWeight: '600' }}>
+                This action cannot be undone!
+              </div>
+              <div style={{ marginBottom: '12px', fontSize: '12px', color: THEME.text }}>
+                Type "DELETE" to confirm account deletion:
+              </div>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                style={inputStyle}
+              />
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button
+                  onClick={deleteUserAccount}
+                  disabled={deleteConfirmText !== 'DELETE'}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: deleteConfirmText === 'DELETE' ? THEME.danger : THEME.border,
+                    color: THEME.white,
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: deleteConfirmText === 'DELETE' ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteConfirmText('');
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: THEME.secondary,
+                    color: THEME.text,
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Accessibility Settings */}
+      {activeSettingsTab === 'accessibility' && (
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: THEME.accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Accessibility size={20} color={THEME.primary} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+              Accessibility Settings
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+              Make the app work better for you
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Screen Reader Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Enhanced ARIA labels and announcements
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.screenReaderMode)}
+            onClick={() => handleAccessibilityChange('screenReaderMode', !localSettings.accessibility?.screenReaderMode)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.screenReaderMode)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Enable Keyboard Shortcuts
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Use keyboard navigation (see help for shortcuts)
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.enableKeyboardShortcuts)}
+            onClick={() => handleAccessibilityChange('enableKeyboardShortcuts', !localSettings.accessibility?.enableKeyboardShortcuts)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.enableKeyboardShortcuts)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              High Contrast Mode
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Increase contrast for better visibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.highContrast)}
+            onClick={() => handleAccessibilityChange('highContrast', !localSettings.accessibility?.highContrast)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.highContrast)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Increase Border Thickness
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Thicker borders for better visibility
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.increaseBorderThickness)}
+            onClick={() => handleAccessibilityChange('increaseBorderThickness', !localSettings.accessibility?.increaseBorderThickness)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.increaseBorderThickness)} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: THEME.text }}>
+              Always Show Focus Indicators
+            </div>
+            <div style={{ fontSize: '12px', color: THEME.textLight }}>
+              Always display focus outlines
+            </div>
+          </div>
+          <button
+            style={toggleStyle(localSettings.accessibility?.alwaysShowFocusIndicators)}
+            onClick={() => handleAccessibilityChange('alwaysShowFocusIndicators', !localSettings.accessibility?.alwaysShowFocusIndicators)}
+          >
+            <div style={toggleKnobStyle(localSettings.accessibility?.alwaysShowFocusIndicators)} />
+          </button>
+        </div>
+
+        <div style={{ marginBottom: '0' }}>
+          <label style={labelStyle}>
+            Colorblind Mode
+          </label>
+          <select
+            value={localSettings.accessibility?.colorblindMode || 'none'}
+            onChange={(e) => handleAccessibilityChange('colorblindMode', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="none">None</option>
+            <option value="deuteranopia">Deuteranopia (Red-Green)</option>
+            <option value="protanopia">Protanopia (Red-Green)</option>
+            <option value="tritanopia">Tritanopia (Blue-Yellow)</option>
+          </select>
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+            Apply color filters to assist with color vision deficiencies
+          </p>
+        </div>
+      </div>
+      )}
+
+      {/* Integrations Settings */}
+      {activeSettingsTab === 'integrations' && (
+      <div>
+        {/* Jotform Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                Jotform Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync form submissions from Jotform
+              </p>
+            </div>
+          </div>
+
+          {!jotformStatus.connected ? (
+            <div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Jotform API Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showJotformKey ? 'text' : 'password'}
+                    value={jotformApiKey}
+                    onChange={(e) => setJotformApiKey(e.target.value)}
+                    placeholder="Enter your Jotform API key"
+                    style={{ ...inputStyle, paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowJotformKey(!showJotformKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    {showJotformKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+                  </button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: '11px', color: THEME.textLight }}>
+                  Get your API key from{' '}
+                  <a href="https://www.jotform.com/myaccount/api" target="_blank" rel="noopener noreferrer" style={{ color: THEME.primary }}>
+                    Jotform Account Settings
+                  </a>
+                </p>
+              </div>
+              <button
+                onClick={handleConnectJotform}
+                disabled={isConnectingJotform || !jotformApiKey.trim()}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingJotform || !jotformApiKey.trim() ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingJotform || !jotformApiKey.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingJotform ? 'Connecting...' : 'Connect Jotform'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: jotformStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: jotformStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {jotformStatus.status === 'error' ? `Error: ${jotformStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncJotform}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectJotform}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {jotformSubmissions.length > 0 && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced Submissions: {jotformSubmissions.length}
+                  </div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {jotformSubmissions.slice(0, 10).map((sub, idx) => (
+                      <div key={idx} style={{ 
+                        padding: '8px', 
+                        background: THEME.secondary, 
+                        borderRadius: '6px',
+                        marginBottom: '6px',
+                        fontSize: '12px',
+                      }}>
+                        <div style={{ fontWeight: '600', color: THEME.text }}>
+                          {sub.formTitle || `Form ${sub.formId}`}
+                        </div>
+                        <div style={{ color: THEME.textLight, fontSize: '11px' }}>
+                          {new Date(sub.created_at || sub.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                    {jotformSubmissions.length > 10 && (
+                      <div style={{ fontSize: '11px', color: THEME.textLight, textAlign: 'center', marginTop: '8px' }}>
+                        +{jotformSubmissions.length - 10} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Marketsharp Integration */}
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: THEME.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Package size={20} color={THEME.primary} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: THEME.text }}>
+                Marketsharp Integration
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: THEME.textLight }}>
+                Sync leads and contacts from Marketsharp
+              </p>
+            </div>
+          </div>
+
+          {!marketsharpStatus.connected ? (
+            <div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Marketsharp API Key</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showMarketsharpKey ? 'text' : 'password'}
+                    value={marketsharpApiKey}
+                    onChange={(e) => setMarketsharpApiKey(e.target.value)}
+                    placeholder="Enter your Marketsharp API key"
+                    style={{ ...inputStyle, paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMarketsharpKey(!showMarketsharpKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                    }}
+                  >
+                    {showMarketsharpKey ? <EyeOff size={18} color={THEME.textLight} /> : <Eye size={18} color={THEME.textLight} />}
+                  </button>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Company ID</label>
+                <input
+                  type="text"
+                  value={marketsharpCompanyId}
+                  onChange={(e) => setMarketsharpCompanyId(e.target.value)}
+                  placeholder="Enter your Marketsharp Company ID"
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                onClick={handleConnectMarketsharp}
+                disabled={isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim()}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim() ? THEME.border : THEME.primary,
+                  color: THEME.white,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: isConnectingMarketsharp || !marketsharpApiKey.trim() || !marketsharpCompanyId.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isConnectingMarketsharp ? 'Connecting...' : 'Connect Marketsharp'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                padding: '12px', 
+                background: marketsharpStatus.status === 'error' ? '#FFE5E5' : '#E8F5E9',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: marketsharpStatus.status === 'error' ? THEME.danger : THEME.success,
+                }} />
+                <span style={{ fontSize: '13px', color: THEME.text }}>
+                  {marketsharpStatus.status === 'error' ? `Error: ${marketsharpStatus.error}` : 'Connected'}
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  onClick={handleSyncMarketsharp}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: THEME.secondary,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: '8px',
+                    color: THEME.text,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  Sync Now
+                </button>
+                <button
+                  onClick={handleDisconnectMarketsharp}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    background: 'transparent',
+                    border: `1px solid ${THEME.danger}`,
+                    borderRadius: '8px',
+                    color: THEME.danger,
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              {(marketsharpData.leads.length > 0 || marketsharpData.contacts.length > 0) && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}` }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: THEME.text, marginBottom: '8px' }}>
+                    Synced: {marketsharpData.leads.length} leads, {marketsharpData.contacts.length} contacts
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      )}
 
       {/* Save Button */}
       <button
@@ -6825,13 +10249,15 @@ function SettingsPage({ settings, onSaveSettings }) {
 // BOTTOM NAVIGATION
 // ========================================
 
-function BottomNav({ activeView, onViewChange, isManager }) {
+function BottomNav({ activeView, onViewChange, isManager, theme }) {
+  const THEME = theme || { /* fallback */ primary: '#0056A4', secondary: '#F5F7FA', text: '#1A1A2E', textLight: '#6B7280', border: '#E5E7EB', white: '#FFFFFF', accent: '#E8F4FD', gradients: { cardHover: 'linear-gradient(135deg, rgba(0, 86, 164, 0.05) 0%, rgba(74, 144, 217, 0.05) 100%)', primary: 'linear-gradient(135deg, #0056A4 0%, #4A90D9 100%)' }, shadows: { layered: '0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.04)' } };
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Target, roles: ['employee', 'manager'] },
     { id: 'goals', label: 'Goals', icon: Target, roles: ['employee', 'manager'] },
     { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['employee', 'manager'] },
     { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
     { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
+    { id: 'history', label: 'History', icon: TrendingUp, roles: ['employee', 'manager'] },
     { id: 'chatbot', label: 'AI Coach', icon: Bot, roles: ['employee', 'manager'] },
     { id: 'settings', label: 'Settings', icon: Sliders, roles: ['employee', 'manager'] },
     { id: 'team', label: 'Team', icon: Users, roles: ['manager'] },

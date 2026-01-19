@@ -28,3 +28,20 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+
+# Playwright
+/test-results
+/playwright-report
+/playwright/.cache
+
+# Build fix scripts
+*.py
+fix-*.sh
+eslint-errors.txt
+*.backup
+*.pre-eslint-fix
+
+# Debugging and test artifacts
+check-deployment.js
+playwright-results.txt
+preview-page.png

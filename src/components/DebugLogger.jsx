@@ -169,7 +169,7 @@ function DebugLogger() {
         onClick={() => setIsOpen(true)}
         style={{
           position: 'fixed',
-          top: '20px',
+          top: '80px',
           right: '20px',
           width: '44px',
           height: '44px',
@@ -204,7 +204,7 @@ function DebugLogger() {
       <div
         style={{
           position: 'fixed',
-          top: '20px',
+          top: '80px',
           right: '20px',
           background: THEME.white,
           border: `2px solid ${THEME.border}`,
@@ -252,7 +252,7 @@ function DebugLogger() {
     <div
       style={{
         position: 'fixed',
-        top: '20px',
+        top: '80px',
         right: '20px',
         width: 'min(600px, calc(100vw - 40px))',
         maxHeight: 'calc(100vh - 100px)',
