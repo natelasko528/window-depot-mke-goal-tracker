@@ -49,10 +49,20 @@ const storage = {
         request.onsuccess = () => {
           if (request.result) {
             try {
-              const value = typeof request.result === 'string' 
-                ? JSON.parse(request.result) 
-                : request.result;
-              resolve(value);
+              // Handle different value types
+              if (typeof request.result === 'string') {
+                // Try to parse as JSON, but fallback to plain string if invalid
+                try {
+                  const parsed = JSON.parse(request.result);
+                  resolve(parsed);
+                } catch (parseError) {
+                  // Not valid JSON, return as plain string
+                  resolve(request.result);
+                }
+              } else {
+                // Already an object/array, return as-is
+                resolve(request.result);
+              }
             } catch (error) {
               console.error(`Storage get parse error for ${key}:`, error);
               resolve(defaultValue);

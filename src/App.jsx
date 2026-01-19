@@ -3010,6 +3010,15 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
   // STREAK CALCULATOR
   // ========================================
 
+  // Helper function to check if two dates are consecutive
+  const isConsecutiveDate = (date1, date2) => {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    const diffTime = Math.abs(d2 - d1);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 1;
+  };
+
   const calculateStreaks = useMemo(() => {
     if (!currentUser || !dailyLogs) {
       return { currentStreak: 0, bestStreak: 0 };
@@ -3048,14 +3057,6 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
 
     return { currentStreak, bestStreak };
   }, [currentUser, dailyLogs]);
-
-  const isConsecutiveDate = (date1, date2) => {
-    const d1 = new Date(date1);
-    const d2 = new Date(date2);
-    const diffTime = Math.abs(d2 - d1);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays === 1;
-  };
 
   // ========================================
   // UNDO HISTORY MANAGEMENT
@@ -4426,6 +4427,347 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
 // FEED COMPONENT
 // ========================================
 
+// Memoized FeedPost component for performance
+const FeedPost = React.memo(function FeedPost({
+  post,
+  index,
+  currentUser,
+  onToggleLike,
+  onAddComment,
+  onEditPost,
+  onDeletePost,
+  editingId,
+  setEditingId,
+  editContent,
+  setEditContent,
+  commentingId,
+  setCommentingId,
+  newComment,
+  setNewComment,
+  handleEdit,
+  handleComment,
+  theme,
+}) {
+  const THEME = theme;
+  const postRef = React.useRef(null);
+  const [isVisible, setIsVisible] = React.useState(false);
+
+  // Lazy load with Intersection Observer
+  React.useEffect(() => {
+    if (!postRef.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' } // Start loading 100px before visible
+    );
+
+    observer.observe(postRef.current);
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Render placeholder for posts not yet visible (first 20 always visible)
+  if (!isVisible && index >= 20) {
+    return (
+      <div
+        ref={postRef}
+        style={{
+          background: THEME.white,
+          borderRadius: '16px',
+          padding: '20px',
+          boxShadow: THEME.shadows.md,
+          borderLeft: `4px solid ${THEME.border}`,
+          minHeight: '200px',
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={postRef}
+      style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '20px',
+        boxShadow: THEME.shadows.md,
+        borderLeft: post.isAuto ? `4px solid ${THEME.warning}` : `4px solid ${THEME.primary}`,
+        animation: `fadeInUp 0.4s ease-out ${index * 0.05}s both`,
+        transition: 'all 0.2s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = THEME.shadows.layered;
+        e.currentTarget.style.transform = 'translateY(-2px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = THEME.shadows.md;
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ 
+            fontSize: '15px', 
+            fontWeight: '700', 
+            color: THEME.text,
+            fontFamily: 'var(--font-display)',
+            marginBottom: '4px',
+          }}>
+            {post.userName}
+          </div>
+          <div style={{ 
+            fontSize: '12px', 
+            color: THEME.textLight,
+            fontFamily: 'var(--font-body)',
+          }}>
+            {formatRelativeTime(post.timestamp)}
+            {post.edited && ' (edited)'}
+          </div>
+        </div>
+        {post.userId === currentUser.id && !post.isAuto && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => {
+                setEditingId(post.id);
+                setEditContent(post.content);
+              }}
+              style={{
+                padding: '4px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              <Edit2 size={16} color={THEME.textLight} />
+            </button>
+            <button
+              onClick={() => onDeletePost(post.id)}
+              style={{
+                padding: '4px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              <Trash2 size={16} color={THEME.danger} />
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {editingId === post.id ? (
+        <div>
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            maxLength={500}
+            rows={3}
+            style={{
+              width: '100%',
+              padding: '12px',
+              border: `2px solid ${THEME.border}`,
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+              marginBottom: '8px',
+            }}
+          />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => handleEdit(post.id)}
+              style={{
+                padding: '8px 16px',
+                background: THEME.success,
+                border: 'none',
+                borderRadius: '6px',
+                color: THEME.white,
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              <Check size={14} />
+            </button>
+            <button
+              onClick={() => {
+                setEditingId(null);
+                setEditContent('');
+              }}
+              style={{
+                padding: '8px 16px',
+                background: THEME.secondary,
+                border: 'none',
+                borderRadius: '6px',
+                color: THEME.text,
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          fontSize: '15px',
+          color: THEME.text,
+          marginBottom: '12px',
+          lineHeight: '1.6',
+          fontFamily: 'var(--font-body)',
+        }}>
+          {post.content}
+        </div>
+      )}
+      
+      <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+        <button
+          onClick={() => onToggleLike(post.id)}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = 'scale(0.9)';
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 14px',
+            background: (post.likes || []).includes(currentUser.id) 
+              ? THEME.gradients.primary 
+              : 'transparent',
+            border: (post.likes || []).includes(currentUser.id) 
+              ? 'none' 
+              : `1px solid ${THEME.border}`,
+            borderRadius: '8px',
+            color: (post.likes || []).includes(currentUser.id) ? THEME.white : THEME.textLight,
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontFamily: 'var(--font-body)',
+          }}
+        >
+          <ThumbsUp size={16} />
+          {(post.likes || []).length}
+        </button>
+        <button
+          onClick={() => setCommentingId(commentingId === post.id ? null : post.id)}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = 'scale(0.9)';
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 12px',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: '6px',
+            color: THEME.textLight,
+            fontSize: '12px',
+            fontWeight: '600',
+            cursor: 'pointer',
+          }}
+        >
+          <MessageSquare size={14} />
+          {(post.comments || []).length}
+        </button>
+      </div>
+      
+      {(post.comments || []).length > 0 && (
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+          {post.comments.map(comment => (
+            <div key={comment.id} style={{
+              padding: '8px 12px',
+              background: THEME.secondary,
+              borderRadius: '8px',
+              marginBottom: '8px',
+            }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
+                {comment.userName}
+              </div>
+              <div style={{ fontSize: '12px', color: THEME.text }}>
+                {comment.content}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {commentingId === post.id && (
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
+          <textarea
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            placeholder="Write a comment..."
+            maxLength={300}
+            rows={2}
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: `2px solid ${THEME.border}`,
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              resize: 'vertical',
+              marginBottom: '8px',
+            }}
+          />
+          <button
+            onClick={() => handleComment(post.id)}
+            disabled={!newComment.trim()}
+            onMouseDown={(e) => {
+              if (newComment.trim()) e.currentTarget.style.transform = 'scale(0.95)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+            style={{
+              padding: '8px 16px',
+              background: newComment.trim() ? THEME.gradients.primary : THEME.border,
+              border: 'none',
+              borderRadius: '8px',
+              color: THEME.white,
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: newComment.trim() ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s ease',
+              boxShadow: newComment.trim() ? THEME.shadows.sm : 'none',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Comment
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function for React.memo
+  return (
+    prevProps.post.id === nextProps.post.id &&
+    prevProps.post.likes?.length === nextProps.post.likes?.length &&
+    prevProps.post.comments?.length === nextProps.post.comments?.length &&
+    prevProps.editingId === nextProps.editingId &&
+    prevProps.commentingId === nextProps.commentingId &&
+    prevProps.editContent === nextProps.editContent &&
+    prevProps.newComment === nextProps.newComment
+  );
+});
+
 function Feed({
   feed,
   currentUser,
@@ -4684,271 +5026,27 @@ function Feed({
           </div>
         ) : (
           feed.map((post, index) => (
-            <div
+            <FeedPost
               key={post.id}
-              style={{
-                background: THEME.white,
-                borderRadius: '16px',
-                padding: '20px',
-                boxShadow: THEME.shadows.md,
-                borderLeft: post.isAuto ? `4px solid ${THEME.warning}` : `4px solid ${THEME.primary}`,
-                animation: `fadeInUp 0.4s ease-out ${index * 0.05}s both`,
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = THEME.shadows.layered;
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = THEME.shadows.md;
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ 
-                    fontSize: '15px', 
-                    fontWeight: '700', 
-                    color: THEME.text,
-                    fontFamily: 'var(--font-display)',
-                    marginBottom: '4px',
-                  }}>
-                    {post.userName}
-                  </div>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    color: THEME.textLight,
-                    fontFamily: 'var(--font-body)',
-                  }}>
-                    {formatRelativeTime(post.timestamp)}
-                    {post.edited && ' (edited)'}
-                  </div>
-                </div>
-                {post.userId === currentUser.id && !post.isAuto && (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => {
-                        setEditingId(post.id);
-                        setEditContent(post.content);
-                      }}
-                      style={{
-                        padding: '4px',
-                        background: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Edit2 size={16} color={THEME.textLight} />
-                    </button>
-                    <button
-                      onClick={() => onDeletePost(post.id)}
-                      style={{
-                        padding: '4px',
-                        background: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Trash2 size={16} color={THEME.danger} />
-                    </button>
-                  </div>
-                )}
-              </div>
-              
-              {editingId === post.id ? (
-                <div>
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    maxLength={500}
-                    rows={3}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      border: `2px solid ${THEME.border}`,
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      fontFamily: 'inherit',
-                      boxSizing: 'border-box',
-                      resize: 'vertical',
-                      marginBottom: '8px',
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => handleEdit(post.id)}
-                      style={{
-                        padding: '8px 16px',
-                        background: THEME.success,
-                        border: 'none',
-                        borderRadius: '6px',
-                        color: THEME.white,
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditContent('');
-                      }}
-                      style={{
-                        padding: '8px 16px',
-                        background: THEME.secondary,
-                        border: 'none',
-                        borderRadius: '6px',
-                        color: THEME.text,
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{
-                  fontSize: '15px',
-                  color: THEME.text,
-                  marginBottom: '12px',
-                  lineHeight: '1.6',
-                  fontFamily: 'var(--font-body)',
-                }}>
-                  {post.content}
-                </div>
-              )}
-              
-              <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
-                <button
-                  onClick={() => onToggleLike(post.id)}
-                  onMouseDown={(e) => {
-                    e.currentTarget.style.transform = 'scale(0.9)';
-                  }}
-                  onMouseUp={(e) => {
-                    e.currentTarget.style.transform = 'scale(1)';
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    background: (post.likes || []).includes(currentUser.id) 
-                      ? THEME.gradients.primary 
-                      : 'transparent',
-                    border: (post.likes || []).includes(currentUser.id) 
-                      ? 'none' 
-                      : `1px solid ${THEME.border}`,
-                    borderRadius: '8px',
-                    color: (post.likes || []).includes(currentUser.id) ? THEME.white : THEME.textLight,
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    fontFamily: 'var(--font-body)',
-                  }}
-                >
-                  <ThumbsUp size={16} />
-                  {(post.likes || []).length}
-                </button>
-                <button
-                  onClick={() => setCommentingId(commentingId === post.id ? null : post.id)}
-                  onMouseDown={(e) => {
-                    e.currentTarget.style.transform = 'scale(0.9)';
-                  }}
-                  onMouseUp={(e) => {
-                    e.currentTarget.style.transform = 'scale(1)';
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: '6px',
-                    color: THEME.textLight,
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <MessageSquare size={14} />
-                  {(post.comments || []).length}
-                </button>
-              </div>
-              
-              {(post.comments || []).length > 0 && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
-                  {post.comments.map(comment => (
-                    <div key={comment.id} style={{
-                      padding: '8px 12px',
-                      background: THEME.secondary,
-                      borderRadius: '8px',
-                      marginBottom: '8px',
-                    }}>
-                      <div style={{ fontSize: '12px', fontWeight: '600', color: THEME.text, marginBottom: '4px' }}>
-                        {comment.userName}
-                      </div>
-                      <div style={{ fontSize: '12px', color: THEME.text }}>
-                        {comment.content}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {commentingId === post.id && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${THEME.border}` }}>
-                  <textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Write a comment..."
-                    maxLength={300}
-                    rows={2}
-                    style={{
-                      width: '100%',
-                      padding: '8px',
-                      border: `2px solid ${THEME.border}`,
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontFamily: 'inherit',
-                      boxSizing: 'border-box',
-                      resize: 'vertical',
-                      marginBottom: '8px',
-                    }}
-                  />
-                  <button
-                    onClick={() => handleComment(post.id)}
-                    disabled={!newComment.trim()}
-                    onMouseDown={(e) => {
-                      if (newComment.trim()) e.currentTarget.style.transform = 'scale(0.95)';
-                    }}
-                    onMouseUp={(e) => {
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      background: newComment.trim() ? THEME.gradients.primary : THEME.border,
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: THEME.white,
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: newComment.trim() ? 'pointer' : 'not-allowed',
-                      transition: 'all 0.2s ease',
-                      boxShadow: newComment.trim() ? THEME.shadows.sm : 'none',
-                      fontFamily: 'var(--font-body)',
-                    }}
-                  >
-                    Comment
-                  </button>
-                </div>
-              )}
-            </div>
+              post={post}
+              index={index}
+              currentUser={currentUser}
+              onToggleLike={onToggleLike}
+              onAddComment={onAddComment}
+              onEditPost={onEditPost}
+              onDeletePost={onDeletePost}
+              editingId={editingId}
+              setEditingId={setEditingId}
+              editContent={editContent}
+              setEditContent={setEditContent}
+              commentingId={commentingId}
+              setCommentingId={setCommentingId}
+              newComment={newComment}
+              setNewComment={setNewComment}
+              handleEdit={handleEdit}
+              handleComment={handleComment}
+              theme={THEME}
+            />
           ))
         )}
       </div>
