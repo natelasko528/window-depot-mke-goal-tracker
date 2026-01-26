@@ -1,4 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getToolsForRole, toGeminiFunctionDeclarations } from './aiToolDefinitions';
+import { executeTool } from './aiTools';
 
 // Default API key from environment variable
 let API_KEY = process.env.REACT_APP_GEMINI_API_KEY || '';
@@ -180,8 +182,8 @@ const checkRateLimit = () => {
   requestCount++;
 };
 
-// System prompt for the AI
-const SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app.
+// System prompt for the AI (basic - used when tools are not available)
+const BASIC_SYSTEM_PROMPT = `You are a helpful AI coach for Window Depot Milwaukee's goal tracking app.
 Your role is to:
 - Provide motivation and coaching to help users reach their daily goals
 - Answer questions about the app features, goals, and performance
@@ -192,6 +194,51 @@ Available goal categories: reviews, demos, callbacks
 Users can track their daily progress toward goals and see weekly leaderboards.
 
 Be concise but helpful. Use emojis sparingly. Focus on actionable advice.`;
+
+// Enhanced system prompt for function calling mode
+const getEnhancedSystemPrompt = (userRole) => {
+  const basePrompt = `You are an intelligent AI coach and assistant for Window Depot Milwaukee's goal tracking app.
+You have FULL ACCESS to the user's data and can perform actions on their behalf.
+
+YOUR CAPABILITIES:
+${userRole === 'manager' ? `
+AS A MANAGER, you can:
+- Query ANY user's stats, appointments, and performance data
+- Generate team reports and compare users
+- Identify top performers and those needing support
+- Create challenges, rewards, and team announcements
+- Update any user's goals and award bonus XP
+- Archive users and manage team settings
+` : ''}
+AS ${userRole === 'manager' ? 'ALSO FOR YOUR OWN DATA' : 'AN EMPLOYEE'}, you can:
+- Query your activity history (reviews, demos, callbacks) for any date range
+- View and analyze your appointments (including times, customers, products)
+- Check your achievements, XP, level, and streak information
+- Analyze your performance patterns (best days, typical times, trends)
+- View your leaderboard position and compare with teammates
+- Log new activities and create appointments
+- Post to the team feed
+- Update your daily goals
+
+IMPORTANT GUIDELINES:
+1. ALWAYS use your tools to fetch real data before answering questions about stats or performance
+2. When asked about historical data, patterns, or analytics - USE YOUR TOOLS
+3. For actions like logging activities or creating appointments - CONFIRM BEFORE EXECUTING
+4. Provide specific numbers and insights from the data you retrieve
+5. Be concise but informative - summarize data clearly
+6. If a tool returns an error, explain what went wrong in simple terms
+
+EXAMPLE TOOL USAGE:
+- "How many demos this week?" → Call getMyStats with this week's date range
+- "What time do I usually schedule appointments?" → Call analyzeMyPatterns
+- "Log 3 callbacks" → Call logActivity with category='callbacks', count=3
+- "Compare John and Sarah" (manager) → Call compareUsers
+
+Today's date is ${new Date().toISOString().split('T')[0]}.
+Be helpful, accurate, and proactive in using your tools to provide real insights.`;
+
+  return basePrompt;
+};
 
 /**
  * Configure the AI module with custom settings
@@ -242,7 +289,7 @@ export const isAIConfigured = () => {
   return !!API_KEY && !!genAI;
 };
 
-// Get AI response with context
+// Get AI response with context (basic mode - no function calling)
 export const getAIResponse = async (message, context = {}, modelName = DEFAULT_MODEL) => {
   if (!isAIConfigured()) {
     throw new Error('AI is not configured. Please add your Gemini API key in Settings.');
@@ -270,7 +317,7 @@ export const getAIResponse = async (message, context = {}, modelName = DEFAULT_M
       contextString += `Goals: Reviews: ${context.userGoals.reviews}, Demos: ${context.userGoals.demos}, Callbacks: ${context.userGoals.callbacks}\n`;
     }
 
-    const prompt = `${SYSTEM_PROMPT}${contextString}\n\nUser: ${message}\n\nAI:`;
+    const prompt = `${BASIC_SYSTEM_PROMPT}${contextString}\n\nUser: ${message}\n\nAI:`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -279,31 +326,186 @@ export const getAIResponse = async (message, context = {}, modelName = DEFAULT_M
     return text;
   } catch (error) {
     console.error('AI request failed:', error);
-
-    // Provide specific error messages for common failure scenarios
-    if (error.message?.includes('Rate limit') || error.message?.includes('rate_limit')) {
-      throw error;
-    }
-
-    if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
-      throw new Error('Invalid API key. Please check your API key in Settings.');
-    }
-
-    if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
-      throw new Error('API quota exceeded. Please try again later or contact support.');
-    }
-
-    if (error.message?.includes('network') || error.message?.includes('fetch')) {
-      throw new Error('Network error. Please check your internet connection and try again.');
-    }
-
-    if (error.message?.includes('model not found') || error.message?.includes('NOT_FOUND')) {
-      throw new Error(`Model "${currentModel}" is not available. Try a different model in Settings.`);
-    }
-
-    // Generic fallback with original error context
-    throw new Error(`Failed to get AI response: ${error.message || 'Unknown error'}`);
+    throw handleAIError(error);
   }
+};
+
+/**
+ * Handle common AI errors and return user-friendly error messages
+ */
+const handleAIError = (error) => {
+  if (error.message?.includes('Rate limit') || error.message?.includes('rate_limit')) {
+    return error;
+  }
+
+  if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT')) {
+    return new Error('Invalid API key. Please check your API key in Settings.');
+  }
+
+  if (error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+    return new Error('API quota exceeded. Please try again later or contact support.');
+  }
+
+  if (error.message?.includes('network') || error.message?.includes('fetch')) {
+    return new Error('Network error. Please check your internet connection and try again.');
+  }
+
+  if (error.message?.includes('model not found') || error.message?.includes('NOT_FOUND')) {
+    return new Error(`Model "${currentModel}" is not available. Try a different model in Settings.`);
+  }
+
+  // Generic fallback with original error context
+  return new Error(`Failed to get AI response: ${error.message || 'Unknown error'}`);
+};
+
+/**
+ * Get AI response with function calling support
+ * This is the enhanced version that can query data and perform actions
+ *
+ * @param {string} message - User's message
+ * @param {Object} context - Context object with currentUser, refreshData callback, etc.
+ * @param {string} modelName - Model to use
+ * @param {Function} onToolCall - Optional callback when a tool is called (for UI feedback)
+ * @returns {Promise<{text: string, toolCalls: Array}>} Response with text and any tool calls made
+ */
+export const getAIResponseWithTools = async (message, context = {}, modelName = DEFAULT_MODEL, onToolCall = null) => {
+  if (!isAIConfigured()) {
+    throw new Error('AI is not configured. Please add your Gemini API key in Settings.');
+  }
+
+  checkRateLimit();
+
+  const { currentUser } = context;
+  if (!currentUser) {
+    throw new Error('User context is required for AI tools.');
+  }
+
+  const userRole = currentUser.role || 'employee';
+  const tools = getToolsForRole(userRole);
+  const functionDeclarations = toGeminiFunctionDeclarations(tools);
+
+  try {
+    const modelToUse = modelName && modelName !== DEFAULT_MODEL ? modelName : currentModel;
+
+    // Create model with tools
+    const model = genAI.getGenerativeModel({
+      model: modelToUse,
+      tools: [{ functionDeclarations }],
+      systemInstruction: getEnhancedSystemPrompt(userRole),
+    });
+
+    // Start a chat session for multi-turn conversation with tools
+    const chat = model.startChat({
+      history: [],
+    });
+
+    // Build initial context message
+    let contextInfo = `[Context: User "${currentUser.name}" (${userRole})`;
+    if (context.todayStats) {
+      contextInfo += `, Today: ${context.todayStats.reviews || 0} reviews, ${context.todayStats.demos || 0} demos, ${context.todayStats.callbacks || 0} callbacks`;
+    }
+    contextInfo += ']';
+
+    const fullMessage = `${contextInfo}\n\nUser: ${message}`;
+
+    // Send message and handle potential function calls
+    let result = await chat.sendMessage(fullMessage);
+    let response = result.response;
+
+    const toolCallsMade = [];
+    let maxIterations = 5; // Prevent infinite loops
+    let iteration = 0;
+
+    // Loop to handle function calls
+    while (iteration < maxIterations) {
+      iteration++;
+
+      // Check if the model wants to call a function
+      const functionCalls = response.functionCalls();
+
+      if (!functionCalls || functionCalls.length === 0) {
+        // No more function calls, we're done
+        break;
+      }
+
+      // Execute all function calls
+      const functionResponses = [];
+
+      for (const functionCall of functionCalls) {
+        const { name, args } = functionCall;
+
+        // Notify UI if callback provided
+        if (onToolCall) {
+          onToolCall({ name, args, status: 'executing' });
+        }
+
+        console.log(`AI calling tool: ${name}`, args);
+
+        // Execute the tool
+        const toolResult = await executeTool(name, args || {}, context);
+
+        toolCallsMade.push({
+          name,
+          args,
+          result: toolResult,
+        });
+
+        // Notify UI of completion
+        if (onToolCall) {
+          onToolCall({ name, args, status: 'completed', result: toolResult });
+        }
+
+        functionResponses.push({
+          functionResponse: {
+            name,
+            response: toolResult,
+          },
+        });
+      }
+
+      // Send function results back to the model
+      result = await chat.sendMessage(functionResponses);
+      response = result.response;
+    }
+
+    // Extract the final text response
+    const text = response.text();
+
+    return {
+      text,
+      toolCalls: toolCallsMade,
+    };
+  } catch (error) {
+    console.error('AI request with tools failed:', error);
+    throw handleAIError(error);
+  }
+};
+
+/**
+ * Build system instruction for voice chat with tool awareness
+ */
+export const getVoiceChatSystemInstruction = (currentUser, todayStats) => {
+  const userRole = currentUser?.role || 'employee';
+
+  return `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
+The current user is ${currentUser?.name || 'User'} (${userRole}).
+Today's stats: Reviews: ${todayStats?.reviews || 0}, Demos: ${todayStats?.demos || 0}, Callbacks: ${todayStats?.callbacks || 0}.
+Goals: Reviews: ${currentUser?.goals?.reviews || 0}, Demos: ${currentUser?.goals?.demos || 0}, Callbacks: ${currentUser?.goals?.callbacks || 0}.
+
+You have access to tools that can query detailed data and perform actions. When the user asks about:
+- Historical stats, patterns, or analysis - use your data query tools
+- Logging activities, appointments, or posts - use your action tools
+- Team data or reports (managers only) - use your management tools
+
+Your role is to:
+- Provide motivation and coaching through natural conversation
+- Answer questions by fetching real data
+- Help with role-playing exercises for sales calls and customer interactions
+- Log activities and appointments when requested
+- Give specific, data-driven feedback
+
+Keep responses conversational and concise for voice interaction.
+Today's date is ${new Date().toISOString().split('T')[0]}.`;
 };
 
 // Get remaining requests in current minute
@@ -356,6 +558,8 @@ export const validateAPIKey = async (apiKey) => {
 
 const aiModule = {
   getAIResponse,
+  getAIResponseWithTools,
+  getVoiceChatSystemInstruction,
   isAIConfigured,
   getRemainingRequests,
   configureAI,

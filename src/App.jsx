@@ -19,6 +19,8 @@ import {
 } from './lib/presence';
 import {
   getAIResponse,
+  getAIResponseWithTools,
+  getVoiceChatSystemInstruction,
   isAIConfigured,
   getRemainingRequests,
   configureAI,
@@ -2677,6 +2679,22 @@ export default function WindowDepotTracker() {
             appSettings={appSettings}
             setAppSettings={setAppSettings}
             theme={currentTheme}
+            onRefreshData={async () => {
+              try {
+                const [loadedUsers, loadedLogs, loadedAppts, loadedFeed] = await Promise.all([
+                  storage.get('users', []),
+                  storage.get('dailyLogs', {}),
+                  storage.get('appointments', []),
+                  storage.get('feed', []),
+                ]);
+                setUsers(loadedUsers);
+                setDailyLogs(loadedLogs);
+                setAppointments(loadedAppts);
+                setFeed(loadedFeed);
+              } catch (error) {
+                console.error('Failed to refresh data:', error);
+              }
+            }}
           />
         )}
 
@@ -6456,7 +6474,7 @@ const formatInlineMarkdown = (text) => {
   return parts.length > 0 ? parts : text;
 };
 
-function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings, theme }) {
+function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings, setAppSettings, theme, onRefreshData }) {
   const THEME = theme;
   const [messages, setMessages] = useState([
     {
@@ -6815,7 +6833,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
       }
     }
 
-    // Default: use text API
+    // Default: use text API with tools
     const userMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -6828,32 +6846,76 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
     setIsLoading(true);
 
     try {
+      // Enhanced context with refreshData callback for tools
       const context = {
         currentUser,
         todayStats,
         weekStats,
         userGoals: currentUser?.goals,
+        refreshData: onRefreshData,
       };
 
-      const response = await getAIResponse(userMessage.content, context);
-      const aiMessage = {
-        id: `ai-${Date.now()}`,
-        role: 'assistant',
-        content: response,
-        timestamp: Date.now(),
+      // Track tool calls for UI feedback
+      const handleToolCall = (toolInfo) => {
+        if (toolInfo.status === 'executing') {
+          // Add a thinking indicator message
+          setMessages(prev => {
+            // Remove any previous tool indicator
+            const filtered = prev.filter(m => !m.isToolIndicator);
+            return [...filtered, {
+              id: `tool-${Date.now()}`,
+              role: 'assistant',
+              content: `Checking ${toolInfo.name.replace(/([A-Z])/g, ' $1').toLowerCase().trim()}...`,
+              timestamp: Date.now(),
+              isToolIndicator: true,
+            }];
+          });
+        }
       };
 
-      setMessages(prev => [...prev, aiMessage]);
+      // Use the enhanced AI response with tools
+      const result = await getAIResponseWithTools(
+        userMessage.content,
+        context,
+        appSettings?.ai?.textModel || DEFAULT_MODEL,
+        handleToolCall
+      );
+
+      // Remove tool indicator and add final response
+      setMessages(prev => {
+        const filtered = prev.filter(m => !m.isToolIndicator);
+        return [...filtered, {
+          id: `ai-${Date.now()}`,
+          role: 'assistant',
+          content: result.text,
+          timestamp: Date.now(),
+          toolCalls: result.toolCalls?.length > 0 ? result.toolCalls : undefined,
+        }];
+      });
+
       setRemainingRequests(getRemainingRequests());
+
+      // Refresh data if any write tools were called
+      if (result.toolCalls?.some(tc =>
+        ['logActivity', 'createAppointment', 'updateMyGoals', 'createFeedPost',
+          'incrementActivity', 'createChallenge', 'updateUserGoals',
+          'createTeamAnnouncement', 'awardBonusXP', 'archiveUser', 'createReward'
+        ].includes(tc.name)
+      )) {
+        if (onRefreshData) await onRefreshData();
+      }
     } catch (error) {
-      const errorMessage = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: `Sorry, I encountered an error: ${error.message}`,
-        timestamp: Date.now(),
-        isError: true,
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      // Remove tool indicator on error
+      setMessages(prev => {
+        const filtered = prev.filter(m => !m.isToolIndicator);
+        return [...filtered, {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: `Sorry, I encountered an error: ${error.message}`,
+          timestamp: Date.now(),
+          isError: true,
+        }];
+      });
     } finally {
       setIsLoading(false);
     }
@@ -6929,17 +6991,7 @@ function Chatbot({ currentUser, todayStats, weekStats, onIncrement, appSettings,
           presencePenalty: 0.0,
           frequencyPenalty: 0.0,
         },
-        systemInstruction: `You are a helpful AI voice coach for Window Depot Milwaukee's goal tracking app.
-The current user is ${currentUser?.name || 'User'} (${currentUser?.role || 'employee'}).
-Today's stats: Reviews: ${todayStats?.reviews || 0}, Demos: ${todayStats?.demos || 0}, Callbacks: ${todayStats?.callbacks || 0}.
-Goals: Reviews: ${currentUser?.goals?.reviews || 0}, Demos: ${currentUser?.goals?.demos || 0}, Callbacks: ${currentUser?.goals?.callbacks || 0}.
-
-Your role is to:
-- Provide motivation and coaching through natural conversation
-- Help with role-playing exercises for sales calls and customer interactions
-- Give feedback on communication skills
-- Be encouraging, professional, and supportive
-Keep responses conversational and concise for voice interaction.`,
+        systemInstruction: getVoiceChatSystemInstruction(currentUser, todayStats),
         onStatusChange: (status) => {
           setVoiceStatus(status);
         },
