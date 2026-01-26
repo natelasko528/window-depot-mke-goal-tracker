@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart } from 'recharts';
-import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown, Terminal } from 'lucide-react';
+import { Star, Calendar, Phone, Users, Target, Award, TrendingUp, Settings, Plus, Minus, Trash2, Edit2, Check, X, MessageSquare, ThumbsUp, Search, Download, Wifi, WifiOff, Bot, Send, Mic, MicOff, Volume2, Key, Sliders, Eye, EyeOff, Square, Sun, Moon, CheckCircle, Clock, XCircle, AlertCircle, RefreshCw, Bell, Shield, Accessibility, Palette, Package, FileDown, Terminal, Trophy } from 'lucide-react';
 import './storage'; // Initialize IndexedDB storage adapter
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { getTheme, listenToSystemThemeChanges } from './lib/theme';
@@ -431,6 +431,8 @@ export default function WindowDepotTracker() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
+  const [challenges, setChallenges] = useState([]);
+  const [userChallenges, setUserChallenges] = useState([]);
 
   // Refs for initialization tracking
   const hasInitialized = useRef(false);
@@ -474,6 +476,8 @@ export default function WindowDepotTracker() {
           storage.get('appSettings', null),
           storage.get('themeMode', 'light'),
           storage.get('dailySnapshots', {}),
+          storage.get('challenges', []),
+          storage.get('userChallenges', []),
         ];
 
         const timeout = new Promise((_, reject) =>
@@ -485,7 +489,7 @@ export default function WindowDepotTracker() {
           timeout
         ]);
 
-        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings, savedThemeMode, loadedSnapshots] = results;
+        const [loadedUsers, loadedLogs, loadedAppts, loadedFeed, savedUser, shouldRemember, savedSettings, savedThemeMode, loadedSnapshots, loadedChallenges, loadedUserChallenges] = results;
 
         // Use synced data if available, otherwise use local
         const finalUsers = syncedData?.users || loadedUsers || [];
@@ -495,6 +499,8 @@ export default function WindowDepotTracker() {
         setFeed(syncedData?.feed || loadedFeed || []);
         setRememberUser(shouldRemember || false);
         setDailySnapshots(loadedSnapshots || {});
+        setChallenges(loadedChallenges || []);
+        setUserChallenges(loadedUserChallenges || []);
 
         // Initialize snapshots from Supabase
         if (navigator.onLine && isSupabaseConfigured) {
@@ -651,6 +657,15 @@ export default function WindowDepotTracker() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // ========================================
+  // CHALLENGE PROGRESS CALCULATION
+  // ========================================
+
+  const calculateChallengeProgress = useCallback((challenge, userId) => {
+    const userChallenge = userChallenges.find(uc => uc.challengeId === challenge.id && uc.userId === userId);
+    return userChallenge ? userChallenge.progress : 0;
+  }, [userChallenges]);
 
   // ========================================
   // TRACKING FUNCTIONS
@@ -1088,7 +1103,29 @@ export default function WindowDepotTracker() {
         }
       });
     subscriptionsRef.current.push(usersSubscription);
-    
+
+    // Subscribe to challenges changes
+    const challengesSubscription = supabase
+      .channel('challenges_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'challenges' },
+        async (payload) => {
+          console.log('Challenge change received!', payload);
+          // Reload challenges from storage
+          const loadedChallenges = await storage.get('challenges', []);
+          setChallenges(loadedChallenges);
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('Challenges subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Challenges subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Challenges subscription failed:', err);
+        }
+      });
+    subscriptionsRef.current.push(challengesSubscription);
+
     console.log('Real-time subscriptions set up successfully');
     
     // Cleanup subscriptions on unmount
@@ -2598,6 +2635,9 @@ export default function WindowDepotTracker() {
               dailyLogs={dailyLogs}
               theme={currentTheme}
               showToast={showToast}
+              challenges={challenges}
+              userChallenges={userChallenges}
+              onViewChange={setActiveView}
             />
             <ActiveUsersList activeUsers={activeUsers} currentUser={currentUser} theme={currentTheme} />
           </div>
@@ -2630,11 +2670,84 @@ export default function WindowDepotTracker() {
             onEditPost={editPost}
             onDeletePost={deletePost}
             theme={currentTheme}
+            challenges={challenges}
+            userChallenges={userChallenges}
           />
         )}
         
         {activeView === 'leaderboard' && (
           <Leaderboard users={users} dailyLogs={dailyLogs} currentUser={currentUser} theme={currentTheme} />
+        )}
+
+        {activeView === 'challenges' && (
+          <div style={{
+            background: currentTheme.white,
+            borderRadius: '16px',
+            padding: '20px',
+            boxShadow: currentTheme.shadows.md,
+          }}>
+            <h2 style={{
+              margin: '0 0 16px 0',
+              fontSize: '24px',
+              fontWeight: '700',
+              color: currentTheme.text,
+            }}>
+              Challenges
+            </h2>
+            {challenges && challenges.filter(c => c.isActive !== false).length > 0 ? (
+              <div style={{ display: 'grid', gap: '16px' }}>
+                {challenges.filter(c => c.isActive !== false).map(challenge => {
+                  const userProgress = userChallenges?.find(uc =>
+                    uc.challengeId === challenge.id && uc.userId === currentUser?.id
+                  );
+                  const progress = userProgress?.progress || 0;
+                  const percent = Math.min(100, Math.round((progress / challenge.goalValue) * 100));
+
+                  return (
+                    <div key={challenge.id} style={{
+                      background: currentTheme.secondary,
+                      borderRadius: '12px',
+                      padding: '16px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontWeight: '700', fontSize: '16px', color: currentTheme.text }}>{challenge.title}</span>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: percent >= 100 ? currentTheme.success : currentTheme.textLight
+                        }}>
+                          {progress}/{challenge.goalValue}
+                        </span>
+                      </div>
+                      {challenge.description && (
+                        <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: currentTheme.textLight }}>
+                          {challenge.description}
+                        </p>
+                      )}
+                      <div style={{
+                        height: '10px',
+                        background: currentTheme.white,
+                        borderRadius: '5px',
+                        overflow: 'hidden',
+                      }}>
+                        <div style={{
+                          width: `${percent}%`,
+                          height: '100%',
+                          background: percent >= 100 ? currentTheme.success : currentTheme.gradients.primary,
+                          borderRadius: '5px',
+                          transition: 'width 0.3s ease',
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={{ color: currentTheme.textLight, textAlign: 'center', padding: '40px 0' }}>
+                No active challenges at the moment.
+              </p>
+            )}
+          </div>
         )}
 
         {activeView === 'history' && (
@@ -3019,7 +3132,7 @@ function UserSelection({ users, onSelectUser, onCreateUser, rememberUser, onReme
 // DASHBOARD COMPONENT
 // ========================================
 
-function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme, showToast }) {
+function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecrement, dailyLogs, theme, showToast, challenges, userChallenges, onViewChange }) {
   const THEME = theme;
   const [celebratingCategory, setCelebratingCategory] = useState(null);
   const [undoHistory, setUndoHistory] = useState([]);
@@ -3766,6 +3879,85 @@ function Dashboard({ currentUser, todayStats, weekStats, onIncrement, onDecremen
           ))}
         </div>
       </div>
+
+      {/* Active Challenges Widget */}
+      {challenges && challenges.filter(c => c.isActive !== false).length > 0 && (
+        <div style={{
+          background: THEME.white,
+          borderRadius: '16px',
+          padding: '20px',
+          boxShadow: THEME.shadows.md,
+          marginTop: '20px',
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px'
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: '18px',
+              fontWeight: '700',
+              color: THEME.text,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}>
+              <span role="img" aria-label="trophy">🏆</span> Active Challenges
+            </h3>
+            <button
+              onClick={() => onViewChange && onViewChange('challenges')}
+              style={{
+                background: 'none',
+                border: `1px solid ${THEME.primary}`,
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: THEME.primary,
+                cursor: 'pointer',
+              }}
+            >
+              View All
+            </button>
+          </div>
+
+          {/* List active challenges with progress bars */}
+          {challenges.filter(c => c.isActive !== false).slice(0, 3).map(challenge => {
+            const userProgress = userChallenges?.find(uc =>
+              uc.challengeId === challenge.id && uc.userId === currentUser?.id
+            );
+            const progress = userProgress?.progress || 0;
+            const percent = Math.min(100, Math.round((progress / challenge.goalValue) * 100));
+
+            return (
+              <div key={challenge.id} style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: '600', fontSize: '14px', color: THEME.text }}>{challenge.title}</span>
+                  <span style={{ fontSize: '12px', color: THEME.textLight }}>
+                    {progress}/{challenge.goalValue}
+                  </span>
+                </div>
+                <div style={{
+                  height: '8px',
+                  background: THEME.secondary,
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${percent}%`,
+                    height: '100%',
+                    background: percent >= 100 ? THEME.success : THEME.gradients.primary,
+                    borderRadius: '4px',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -4442,6 +4634,335 @@ function Appointments({ appointments, onAdd, onDelete, theme }) {
 }
 
 // ========================================
+// CHALLENGE CARD COMPONENT
+// ========================================
+function ChallengeCard({ post, currentUser, onToggleLike, theme, challenges, userChallenges }) {
+  const THEME = theme;
+
+  // Find the linked challenge
+  const challenge = challenges?.find(c => c.id === post.challengeId);
+  const userProgress = userChallenges?.find(uc => uc.challengeId === post.challengeId && uc.userId === currentUser?.id);
+
+  // Calculate time remaining
+  const endDate = challenge?.endDate ? new Date(challenge.endDate) : null;
+  const now = new Date();
+  const timeRemaining = endDate ? Math.max(0, endDate - now) : 0;
+  const hoursLeft = Math.floor(timeRemaining / (1000 * 60 * 60));
+  const daysLeft = Math.floor(hoursLeft / 24);
+  const remainingHours = hoursLeft % 24;
+
+  // Progress percentage
+  const progress = userProgress?.progress || 0;
+  const goalValue = challenge?.goalValue || 1;
+  const progressPercent = Math.min(100, Math.round((progress / goalValue) * 100));
+  const isCompleted = userProgress?.completed || progressPercent >= 100;
+
+  // Format time remaining display
+  const getTimeDisplay = () => {
+    if (timeRemaining === 0) return 'Ended';
+    if (daysLeft > 0) return `${daysLeft}d ${remainingHours}h left`;
+    if (hoursLeft > 0) return `${hoursLeft}h left`;
+    return 'Ending soon';
+  };
+
+  // Determine header text and styling
+  const isNew = challenge?.createdAt && (now - new Date(challenge.createdAt)) < (24 * 60 * 60 * 1000);
+  const headerText = isCompleted ? 'COMPLETED CHALLENGE' : isNew ? 'NEW CHALLENGE' : 'ACTIVE CHALLENGE';
+  const headerColor = isCompleted ? THEME.success : isNew ? THEME.warning : THEME.primary;
+
+  return (
+    <div
+      style={{
+        background: THEME.white,
+        borderRadius: '16px',
+        padding: '0',
+        boxShadow: THEME.shadows.md,
+        overflow: 'hidden',
+        animation: 'fadeInUp 0.4s ease-out both',
+        transition: 'all 0.3s ease',
+        border: `2px solid transparent`,
+        backgroundImage: `linear-gradient(${THEME.white}, ${THEME.white}), linear-gradient(135deg, ${THEME.primary} 0%, ${THEME.warning} 50%, ${THEME.success} 100%)`,
+        backgroundOrigin: 'border-box',
+        backgroundClip: 'padding-box, border-box',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = `0 8px 32px rgba(0, 86, 164, 0.2)`;
+        e.currentTarget.style.transform = 'translateY(-4px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = THEME.shadows.md;
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
+    >
+      {/* Gradient Header */}
+      <div style={{
+        background: `linear-gradient(135deg, ${headerColor} 0%, ${headerColor}CC 100%)`,
+        padding: '12px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span style={{ fontSize: '20px' }}>🏆</span>
+          <span style={{
+            color: THEME.white,
+            fontSize: '12px',
+            fontWeight: '700',
+            letterSpacing: '1px',
+            fontFamily: 'var(--font-display)',
+          }}>
+            {headerText}
+          </span>
+          {isCompleted && <span style={{ fontSize: '16px' }}>✅</span>}
+        </div>
+        {timeRemaining > 0 && !isCompleted && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            padding: '4px 10px',
+            borderRadius: '12px',
+          }}>
+            <span style={{ fontSize: '14px' }}>⏰</span>
+            <span style={{
+              color: THEME.white,
+              fontSize: '11px',
+              fontWeight: '600',
+              fontFamily: 'var(--font-body)',
+            }}>
+              {getTimeDisplay()}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Content Area */}
+      <div style={{ padding: '20px' }}>
+        {/* Challenge Title */}
+        <h3 style={{
+          margin: '0 0 8px 0',
+          fontSize: '18px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+        }}>
+          {challenge?.title || post.content?.split('\n')[0] || 'Challenge'}
+        </h3>
+
+        {/* Description */}
+        <p style={{
+          margin: '0 0 16px 0',
+          fontSize: '14px',
+          color: THEME.textLight,
+          lineHeight: '1.5',
+          fontFamily: 'var(--font-body)',
+        }}>
+          {challenge?.description || post.content || 'Complete this challenge to earn rewards!'}
+        </p>
+
+        {/* Goal Info Box */}
+        <div style={{
+          background: THEME.accent || THEME.secondary,
+          borderRadius: '12px',
+          padding: '14px 16px',
+          marginBottom: '16px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '16px',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{
+              fontSize: '10px',
+              fontWeight: '600',
+              color: THEME.textLight,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              fontFamily: 'var(--font-body)',
+            }}>
+              Goal Type
+            </span>
+            <span style={{
+              fontSize: '14px',
+              fontWeight: '700',
+              color: THEME.text,
+              fontFamily: 'var(--font-display)',
+              textTransform: 'capitalize',
+            }}>
+              {challenge?.goalType || 'Activity'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{
+              fontSize: '10px',
+              fontWeight: '600',
+              color: THEME.textLight,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              fontFamily: 'var(--font-body)',
+            }}>
+              Target
+            </span>
+            <span style={{
+              fontSize: '14px',
+              fontWeight: '700',
+              color: THEME.text,
+              fontFamily: 'var(--font-display)',
+            }}>
+              {goalValue} {challenge?.goalType || 'total'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{
+              fontSize: '10px',
+              fontWeight: '600',
+              color: THEME.textLight,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              fontFamily: 'var(--font-body)',
+            }}>
+              Reward
+            </span>
+            <span style={{
+              fontSize: '14px',
+              fontWeight: '700',
+              color: THEME.warning,
+              fontFamily: 'var(--font-display)',
+            }}>
+              {challenge?.xpReward || 100} XP
+            </span>
+          </div>
+        </div>
+
+        {/* Progress Bar Section */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '8px',
+          }}>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: '600',
+              color: THEME.textLight,
+              fontFamily: 'var(--font-body)',
+            }}>
+              Your Progress
+            </span>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: '700',
+              color: isCompleted ? THEME.success : THEME.primary,
+              fontFamily: 'var(--font-display)',
+            }}>
+              {progress} / {goalValue} ({progressPercent}%)
+            </span>
+          </div>
+          <div style={{
+            height: '10px',
+            background: THEME.secondary,
+            borderRadius: '5px',
+            overflow: 'hidden',
+            position: 'relative',
+          }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${progressPercent}%`,
+                background: isCompleted
+                  ? THEME.success
+                  : `linear-gradient(90deg, ${THEME.primary} 0%, ${THEME.primary}CC 100%)`,
+                borderRadius: '5px',
+                transition: 'width 0.5s ease-out',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Animated shimmer effect */}
+              {!isCompleted && progressPercent > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                    animation: 'shimmer 2s infinite',
+                  }}
+                />
+              )}
+            </div>
+          </div>
+          <style>{`
+            @keyframes shimmer {
+              0% { transform: translateX(-100%); }
+              100% { transform: translateX(100%); }
+            }
+          `}</style>
+        </div>
+
+        {/* Posted by and Like Section */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingTop: '12px',
+          borderTop: `1px solid ${THEME.border}`,
+        }}>
+          <div style={{
+            fontSize: '12px',
+            color: THEME.textLight,
+            fontFamily: 'var(--font-body)',
+          }}>
+            Posted by <span style={{ fontWeight: '600', color: THEME.text }}>{post.userName}</span>
+            {' • '}
+            {formatRelativeTime(post.timestamp)}
+          </div>
+          <button
+            onClick={() => onToggleLike(post.id)}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'scale(0.9)';
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              background: (post.likes || []).includes(currentUser?.id)
+                ? THEME.gradients.primary
+                : 'transparent',
+              border: (post.likes || []).includes(currentUser?.id)
+                ? 'none'
+                : `1px solid ${THEME.border}`,
+              borderRadius: '8px',
+              color: (post.likes || []).includes(currentUser?.id) ? THEME.white : THEME.textLight,
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            <ThumbsUp size={16} />
+            {(post.likes || []).length}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========================================
 // FEED COMPONENT
 // ========================================
 
@@ -4804,7 +5325,9 @@ function Feed({
   pinnedPosts,
   unreadCount,
   theme,
-  users
+  users,
+  challenges,
+  userChallenges
 }) {
   const THEME = theme;
   const [newPost, setNewPost] = useState('');
@@ -5044,30 +5567,502 @@ function Feed({
           </div>
         ) : (
           feed.map((post, index) => (
-            <FeedPost
-              key={post.id}
-              post={post}
-              index={index}
-              currentUser={currentUser}
-              onToggleLike={onToggleLike}
-              onAddComment={onAddComment}
-              onEditPost={onEditPost}
-              onDeletePost={onDeletePost}
-              editingId={editingId}
-              setEditingId={setEditingId}
-              editContent={editContent}
-              setEditContent={setEditContent}
-              commentingId={commentingId}
-              setCommentingId={setCommentingId}
-              newComment={newComment}
-              setNewComment={setNewComment}
-              handleEdit={handleEdit}
-              handleComment={handleComment}
-              theme={THEME}
-            />
+            post.isChallenge || post.challengeId ? (
+              <ChallengeCard
+                key={post.id}
+                post={post}
+                currentUser={currentUser}
+                onToggleLike={onToggleLike}
+                theme={THEME}
+                challenges={challenges}
+                userChallenges={userChallenges}
+              />
+            ) : (
+              <FeedPost
+                key={post.id}
+                post={post}
+                index={index}
+                currentUser={currentUser}
+                onToggleLike={onToggleLike}
+                onAddComment={onAddComment}
+                onEditPost={onEditPost}
+                onDeletePost={onDeletePost}
+                editingId={editingId}
+                setEditingId={setEditingId}
+                editContent={editContent}
+                setEditContent={setEditContent}
+                commentingId={commentingId}
+                setCommentingId={setCommentingId}
+                newComment={newComment}
+                setNewComment={setNewComment}
+                handleEdit={handleEdit}
+                handleComment={handleComment}
+                theme={THEME}
+              />
+            )
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// ========================================
+// CHALLENGES COMPONENT
+// ========================================
+
+function Challenges({ challenges, userChallenges, currentUser, theme, users }) {
+  const THEME = theme;
+
+  // Filter active challenges (is_active === true OR isActive === true, and endDate is in the future)
+  const activeChallenges = challenges.filter(c => {
+    const isActive = c.isActive !== false && c.is_active !== false;
+    const notExpired = !c.endDate || new Date(c.endDate) > new Date();
+    return isActive && notExpired;
+  });
+
+  // Filter completed challenges for current user
+  const completedChallenges = userChallenges.filter(uc =>
+    uc.userId === currentUser?.id && uc.completed
+  );
+
+  // Get user progress for a challenge
+  const getUserProgress = (challengeId) => {
+    return userChallenges.find(uc =>
+      uc.challengeId === challengeId && uc.userId === currentUser?.id
+    );
+  };
+
+  // Calculate time remaining for a challenge
+  const getTimeRemaining = (endDate) => {
+    if (!endDate) return null;
+    const end = new Date(endDate);
+    const now = new Date();
+    const diff = end - now;
+
+    if (diff <= 0) return 'Ended';
+
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+    if (days > 0) return `${days}d ${hours}h left`;
+    if (hours > 0) return `${hours}h left`;
+    return 'Ending soon';
+  };
+
+  // Format date for completed challenges
+  const formatCompletedDate = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  // Get challenge details by ID
+  const getChallengeById = (challengeId) => {
+    return challenges.find(c => c.id === challengeId);
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '24px'
+      }}>
+        <h2 style={{
+          margin: 0,
+          fontSize: '24px',
+          fontWeight: '700',
+          color: THEME.text,
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <span style={{ fontSize: '28px' }}>🏆</span>
+          Challenges
+        </h2>
+        <div style={{
+          background: THEME.gradients.primary,
+          color: THEME.white,
+          padding: '6px 14px',
+          borderRadius: '20px',
+          fontSize: '13px',
+          fontWeight: '600',
+          fontFamily: 'var(--font-body)',
+        }}>
+          {activeChallenges.length} active
+        </div>
+      </div>
+
+      {/* Active Challenges Section */}
+      <div style={{ marginBottom: '32px' }}>
+        <h3 style={{
+          fontSize: '16px',
+          fontWeight: '600',
+          color: THEME.text,
+          marginBottom: '16px',
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: THEME.success,
+            animation: 'pulse 2s infinite',
+          }} />
+          Active Challenges
+        </h3>
+
+        {activeChallenges.length === 0 ? (
+          <div style={{
+            background: THEME.white,
+            borderRadius: '16px',
+            padding: '48px 24px',
+            textAlign: 'center',
+            boxShadow: THEME.shadows.md,
+            border: `1px solid ${THEME.border}`,
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎯</div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: THEME.text,
+              marginBottom: '8px',
+              fontFamily: 'var(--font-display)',
+            }}>
+              No Active Challenges
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: THEME.textLight,
+              fontFamily: 'var(--font-body)',
+            }}>
+              Check back soon for new challenges to compete in!
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {activeChallenges.map((challenge, index) => {
+              const userProgress = getUserProgress(challenge.id);
+              const progress = userProgress?.progress || 0;
+              const goalValue = challenge.goalValue || challenge.goal_value || 1;
+              const progressPercent = Math.min(100, Math.round((progress / goalValue) * 100));
+              const isCompleted = userProgress?.completed || progressPercent >= 100;
+              const timeRemaining = getTimeRemaining(challenge.endDate || challenge.end_date);
+
+              return (
+                <div
+                  key={challenge.id}
+                  style={{
+                    background: THEME.white,
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    boxShadow: THEME.shadows.md,
+                    border: isCompleted
+                      ? `2px solid ${THEME.success}`
+                      : `1px solid ${THEME.border}`,
+                    animation: `fadeInUp 0.4s ease-out ${index * 0.1}s both`,
+                    transition: 'all 0.3s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = `0 8px 32px rgba(0, 86, 164, 0.15)`;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = THEME.shadows.md;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {/* Challenge Header */}
+                  <div style={{
+                    background: isCompleted
+                      ? THEME.gradients.success || `linear-gradient(135deg, ${THEME.success} 0%, ${THEME.success}CC 100%)`
+                      : THEME.gradients.primary,
+                    padding: '14px 20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}>
+                      <span style={{ fontSize: '20px' }}>
+                        {isCompleted ? '✅' : '🏆'}
+                      </span>
+                      <span style={{
+                        color: THEME.white,
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-display)',
+                      }}>
+                        {isCompleted ? 'Completed' : 'Active Challenge'}
+                      </span>
+                    </div>
+                    {timeRemaining && !isCompleted && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'rgba(255, 255, 255, 0.2)',
+                        padding: '5px 12px',
+                        borderRadius: '12px',
+                      }}>
+                        <span style={{ fontSize: '14px' }}>⏰</span>
+                        <span style={{
+                          color: THEME.white,
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          fontFamily: 'var(--font-body)',
+                        }}>
+                          {timeRemaining}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Challenge Content */}
+                  <div style={{ padding: '20px' }}>
+                    {/* Title */}
+                    <h4 style={{
+                      margin: '0 0 8px 0',
+                      fontSize: '18px',
+                      fontWeight: '700',
+                      color: THEME.text,
+                      fontFamily: 'var(--font-display)',
+                    }}>
+                      {challenge.title || challenge.name || 'Challenge'}
+                    </h4>
+
+                    {/* Description */}
+                    <p style={{
+                      margin: '0 0 16px 0',
+                      fontSize: '14px',
+                      color: THEME.textLight,
+                      lineHeight: '1.5',
+                      fontFamily: 'var(--font-body)',
+                    }}>
+                      {challenge.description || 'Complete this challenge to earn rewards!'}
+                    </p>
+
+                    {/* Goal & Reward Info */}
+                    <div style={{
+                      background: THEME.accent || THEME.secondary,
+                      borderRadius: '12px',
+                      padding: '14px 16px',
+                      marginBottom: '16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>🎯</span>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: THEME.text,
+                          fontFamily: 'var(--font-body)',
+                        }}>
+                          Goal: {goalValue} {challenge.goalType || challenge.goal_type || 'activities'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>⭐</span>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: '700',
+                          color: THEME.warning,
+                          fontFamily: 'var(--font-display)',
+                        }}>
+                          {challenge.xpReward || challenge.xp_reward || 100} XP
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '8px',
+                      }}>
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          color: THEME.textLight,
+                          fontFamily: 'var(--font-body)',
+                        }}>
+                          Your Progress
+                        </span>
+                        <span style={{
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          color: isCompleted ? THEME.success : THEME.primary,
+                          fontFamily: 'var(--font-display)',
+                        }}>
+                          {progressPercent}% ({progress}/{goalValue})
+                        </span>
+                      </div>
+                      <div style={{
+                        height: '10px',
+                        background: THEME.secondary,
+                        borderRadius: '5px',
+                        overflow: 'hidden',
+                        position: 'relative',
+                      }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${progressPercent}%`,
+                            background: isCompleted
+                              ? THEME.success
+                              : `linear-gradient(90deg, ${THEME.primary} 0%, ${THEME.primary}CC 100%)`,
+                            borderRadius: '5px',
+                            transition: 'width 0.5s ease-out',
+                            position: 'relative',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {/* Animated shimmer effect */}
+                          {!isCompleted && progressPercent > 0 && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                                animation: 'shimmer 2s infinite',
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <style>{`
+                        @keyframes shimmer {
+                          0% { transform: translateX(-100%); }
+                          100% { transform: translateX(100%); }
+                        }
+                      `}</style>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Completed Challenges Section */}
+      {completedChallenges.length > 0 && (
+        <div>
+          <h3 style={{
+            fontSize: '16px',
+            fontWeight: '600',
+            color: THEME.text,
+            marginBottom: '16px',
+            fontFamily: 'var(--font-display)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}>
+            <span style={{ fontSize: '18px' }}>✅</span>
+            Completed Challenges ({completedChallenges.length})
+          </h3>
+
+          <div style={{
+            background: THEME.white,
+            borderRadius: '12px',
+            boxShadow: THEME.shadows.md,
+            border: `1px solid ${THEME.border}`,
+            overflow: 'hidden',
+          }}>
+            {completedChallenges.map((uc, index) => {
+              const challenge = getChallengeById(uc.challengeId);
+              const completedDate = uc.completedAt || uc.completed_at;
+
+              return (
+                <div
+                  key={uc.id || `${uc.challengeId}-${uc.userId}`}
+                  style={{
+                    padding: '14px 20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderBottom: index < completedChallenges.length - 1
+                      ? `1px solid ${THEME.border}`
+                      : 'none',
+                    animation: `fadeInUp 0.3s ease-out ${index * 0.05}s both`,
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                  }}>
+                    <span style={{
+                      fontSize: '20px',
+                      filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
+                    }}>
+                      🏆
+                    </span>
+                    <div>
+                      <div style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: THEME.text,
+                        fontFamily: 'var(--font-display)',
+                      }}>
+                        {challenge?.title || challenge?.name || 'Challenge'}
+                      </div>
+                      {completedDate && (
+                        <div style={{
+                          fontSize: '12px',
+                          color: THEME.textLight,
+                          fontFamily: 'var(--font-body)',
+                        }}>
+                          Completed {formatCompletedDate(completedDate)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: `${THEME.success}15`,
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                  }}>
+                    <span style={{
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      color: THEME.success,
+                      fontFamily: 'var(--font-display)',
+                    }}>
+                      +{challenge?.xpReward || challenge?.xp_reward || 100} XP
+                    </span>
+                    <span style={{ fontSize: '14px' }}>✅</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -11248,6 +12243,7 @@ function BottomNav({ activeView, onViewChange, isManager, theme }) {
     { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['employee', 'manager'] },
     { id: 'feed', label: 'Feed', icon: MessageSquare, roles: ['employee', 'manager'] },
     { id: 'leaderboard', label: 'Leaderboard', icon: Award, roles: ['employee', 'manager'] },
+    { id: 'challenges', label: 'Challenges', icon: Trophy, roles: ['employee', 'manager'] },
     { id: 'history', label: 'History', icon: TrendingUp, roles: ['employee', 'manager'] },
     { id: 'chatbot', label: 'AI Coach', icon: Bot, roles: ['employee', 'manager'] },
     { id: 'settings', label: 'Settings', icon: Sliders, roles: ['employee', 'manager'] },
