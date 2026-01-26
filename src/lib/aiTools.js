@@ -1742,6 +1742,49 @@ export const createChallenge = async (args, context) => {
       xpReward,
     }, currentUser);
 
+    // Create a feed post for the challenge
+    const feed = await storage.get('feed', []);
+    const goalTypeLabel = goalType === 'reviews' ? 'Reviews' : goalType === 'demos' ? 'Demos' : goalType === 'callbacks' ? 'Callbacks' : goalType;
+    const challengeContent = `🏆 **New Challenge: ${newChallenge.title}**\n\n${newChallenge.description || 'A new challenge has been created!'}\n\n📊 Goal: ${goalValue} ${goalTypeLabel}\n🎁 Reward: ${xpReward} XP\n📅 ${startDate} to ${endDate}`;
+
+    const challengePost = {
+      id: generateId(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      content: challengeContent,
+      timestamp: Date.now(),
+      likes: [],
+      comments: [],
+      isAuto: false,
+      isChallenge: true,
+      challengeId: newChallenge.id,
+    };
+
+    feed.unshift(challengePost);
+    await storage.set('feed', feed);
+
+    // Queue sync for the challenge feed post
+    await queueSyncOperation({
+      type: 'insert',
+      table: 'feed_posts',
+      data: {
+        id: challengePost.id,
+        user_id: challengePost.userId,
+        content: challengePost.content,
+        type: 'challenge',
+        created_at: new Date().toISOString(),
+        metadata: {
+          challengeId: newChallenge.id,
+          challengeType,
+          goalType,
+          goalValue,
+          xpReward,
+          startDate,
+          endDate,
+        },
+      },
+    });
+
     if (refreshData) refreshData();
 
     return {
